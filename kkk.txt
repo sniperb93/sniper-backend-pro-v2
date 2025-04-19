@@ -1,0 +1,10 @@
+.gitignore
+# Ignorer les fichiers sensibles
+.env
+
+# Ignorer les fichiers Python compilés
+__pycache__/
+*.pyc
+
+# Ignorer les fichiers système
+.DS_Store
