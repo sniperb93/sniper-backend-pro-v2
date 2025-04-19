@@ -1,15 +1,16 @@
 # Sniper Backend Pro v2
 
-Backend Python (Flask) connecté à l’API Binance et Telegram.
+Ce projet est le backend de l'application **Sniper**, une IA de trading crypto connectée à Binance et Telegram.
 
-## Fonctions
+## Fonctions principales
 
-- Vérifie les soldes Binance
-- Envoie un signal Telegram si des fonds sont disponibles
-- Boucle automatique toutes les 10 secondes
+- Connexion sécurisée à l’API Binance.
+- Vérification automatique des soldes toutes les 10 secondes.
+- Envoi de signaux Telegram quand un solde est détecté.
 
-## Lancement
+## Démarrage rapide
 
-```bash
-pip install -r requirements.txt
-python app.py
+1. Cloner le repo :
+   ```bash
+   git clone https://github.com/sniperb93/sniper-backend-pro-v2.git
+   cd sniper-backend-pro-v2
