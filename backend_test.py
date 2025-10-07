@@ -152,6 +152,75 @@ class BlaxingAPITester:
                 self.log_test(f"Agent {agent_id} Uptime Reset", False, f"Expected uptime 0, got {data.get('uptime')}")
         return success, data
 
+    def test_mock_mode_headers(self):
+        """Test mock mode with x-blaxing-source header"""
+        headers = {
+            'Content-Type': 'application/json',
+            'x-blaxing-source': 'mock'
+        }
+        success, data = self.run_test("Mock Mode - Agents List", "GET", "agents/list", 200, headers=headers)
+        if success and len(data) == 4:
+            self.log_test("Mock Mode - 4 Seeded Agents", True, "Found expected 4 agents in mock mode")
+        elif success:
+            self.log_test("Mock Mode - 4 Seeded Agents", False, f"Expected 4 agents, got {len(data)}")
+        return success, data
+
+    def test_prod_mode_without_api_key(self):
+        """Test prod mode without API key - should fallback to mock for list, fail for mutate"""
+        headers = {
+            'Content-Type': 'application/json',
+            'x-blaxing-source': 'prod'
+        }
+        
+        # List should fallback to mock
+        success, data = self.run_test("Prod Mode (No API Key) - List Fallback", "GET", "agents/list", 200, headers=headers)
+        if success and len(data) == 4:
+            self.log_test("Prod Mode Fallback - List Works", True, "List endpoint falls back to mock successfully")
+        
+        # Status should fallback to mock
+        success, data = self.run_test("Prod Mode (No API Key) - Status Fallback", "GET", "agents/sniper/status", 200, headers=headers)
+        if success:
+            self.log_test("Prod Mode Fallback - Status Works", True, "Status endpoint falls back to mock successfully")
+        
+        # Activate should fail with 401
+        success, data = self.run_test("Prod Mode (No API Key) - Activate Fails", "POST", "agents/sniper/activate", 401, headers=headers)
+        if success:
+            self.log_test("Prod Mode - Activate 401", True, "Activate correctly returns 401 without API key")
+        
+        # Deactivate should fail with 401
+        success, data = self.run_test("Prod Mode (No API Key) - Deactivate Fails", "POST", "agents/sniper/deactivate", 401, headers=headers)
+        if success:
+            self.log_test("Prod Mode - Deactivate 401", True, "Deactivate correctly returns 401 without API key")
+
+    def test_prod_mode_with_invalid_api_key(self):
+        """Test prod mode with invalid API key - should fail for all operations"""
+        headers = {
+            'Content-Type': 'application/json',
+            'x-blaxing-source': 'prod',
+            'X-API-KEY': 'invalid-key-12345'
+        }
+        
+        # All operations should fail when trying to reach prod with invalid key
+        # But list/status will fallback to mock, while mutate operations will fail
+        
+        # List should fallback to mock
+        success, data = self.run_test("Prod Mode (Invalid Key) - List Fallback", "GET", "agents/list", 200, headers=headers)
+        
+        # Activate should fail
+        success, data = self.run_test("Prod Mode (Invalid Key) - Activate Fails", "POST", "agents/sniper/activate", 401, headers=headers)
+
+    def test_default_mock_behavior(self):
+        """Test default behavior without headers - should default to mock"""
+        # No x-blaxing-source header should default to mock
+        success, data = self.run_test("Default Mode - Agents List", "GET", "agents/list", 200)
+        if success and len(data) == 4:
+            self.log_test("Default Mode - Mock Behavior", True, "Default behavior uses mock mode")
+        
+        # Activate should work in default mock mode
+        success, data = self.run_test("Default Mode - Activate Works", "POST", "agents/sniper/activate", 200)
+        if success and data.get("state") == "active":
+            self.log_test("Default Mode - Activate Success", True, "Activate works in default mock mode")
+
     def run_full_test_suite(self):
         """Run complete test suite"""
         print("🚀 Starting Blaxing API Test Suite")
@@ -161,23 +230,41 @@ class BlaxingAPITester:
         # Test basic connectivity
         self.test_root_endpoint()
         
-        # Test agents list
-        self.test_agents_list()
+        # Test default mock behavior
+        print("\n📋 Testing Default Mock Behavior")
+        self.test_default_mock_behavior()
         
-        # Test agent registration
+        # Test explicit mock mode headers
+        print("\n📋 Testing Mock Mode Headers")
+        self.test_mock_mode_headers()
+        
+        # Test prod mode without API key
+        print("\n📋 Testing Prod Mode Without API Key")
+        self.test_prod_mode_without_api_key()
+        
+        # Test prod mode with invalid API key
+        print("\n📋 Testing Prod Mode With Invalid API Key")
+        self.test_prod_mode_with_invalid_api_key()
+        
+        # Test basic CRUD operations in mock mode
+        print("\n📋 Testing Basic CRUD Operations")
+        self.test_agents_list()
         self.test_agent_register()
         
         # Test activation flow
+        print("\n📋 Testing Activation Flow")
         self.test_agent_activate("sniper")
         time.sleep(1)  # Wait for activation to process
         self.test_agent_status("sniper")
         
         # Test deactivation flow
+        print("\n📋 Testing Deactivation Flow")
         self.test_agent_deactivate("sniper")
         time.sleep(1)  # Wait for deactivation to process
         self.test_agent_status_after_deactivate("sniper")
         
         # Test with another agent
+        print("\n📋 Testing Multiple Agents")
         self.test_agent_activate("crystal")
         time.sleep(1)
         self.test_agent_status("crystal")
