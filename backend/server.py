@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Header
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -22,6 +22,7 @@ db = client[os.environ['DB_NAME']]
 
 # External Blaxing API base (prod). Not an internal service URL.
 BLAXING_API_BASE = os.environ.get("BLAXING_API_BASE", "https://blaxing.fr/api")
+BLAXING_STAGING_API_BASE = os.environ.get("BLAXING_STAGING_API_BASE", "https://staging.blaxing.fr/api")
 REQ_TIMEOUT = 10
 
 # Create the main app without a prefix
@@ -41,9 +42,9 @@ def parse_iso(dt_str: Optional[str]) -> Optional[datetime]:
     if dt_str is None:
         return None
     try:
-            return datetime.fromisoformat(dt_str)
+        return datetime.fromisoformat(dt_str)
     except Exception:
-            return None
+        return None
 
 
 # ---------- Models ----------
@@ -182,10 +183,19 @@ def parse_agent(doc: Dict[str, Any]) -> Agent:
 
 # --- Remote proxy helpers ---
 
-def forward_blaxing(method: str, path: str, api_key: Optional[str], json: Optional[dict] = None):
+def resolve_base_from_header(source: str, header_base: Optional[str]) -> str:
+    if header_base:
+        return header_base.strip()
+    if source == "staging":
+        return BLAXING_STAGING_API_BASE
+    return BLAXING_API_BASE
+
+
+def forward_blaxing(method: str, path: str, api_key: Optional[str], source: str, header_base: Optional[str], json: Optional[dict] = None):
     if not api_key:
-        raise HTTPException(status_code=401, detail="X-API-KEY required for prod mode")
-    url = f"{BLAXING_API_BASE}{path}"
+        raise HTTPException(status_code=401, detail="X-API-KEY required for prod/staging mode")
+    base = resolve_base_from_header(source, header_base)
+    url = f"{base}{path}"
     headers = {"X-API-KEY": api_key}
     try:
         resp = requests.request(method, url, json=json, headers=headers, timeout=REQ_TIMEOUT)
@@ -198,18 +208,17 @@ def forward_blaxing(method: str, path: str, api_key: Optional[str], json: Option
         raise HTTPException(status_code=502, detail=f"Upstream error: {str(e)}")
 
 
-# The frontend will set header 'x-blaxing-source': 'prod' or 'mock'. Default is 'mock'.
-# For list/status calls, if prod fails, we fallback to mock and include source=fallback.
+# The frontend will set header 'x-blaxing-source': 'prod' | 'staging' | 'mock'. Default is 'mock'.
+# Optional header 'x-blaxing-base' can override upstream base URL.
 
 @api_router.get("/agents/list", response_model=List[Agent])
-async def list_agents(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None)):
-    if (x_blaxing_source or "mock").lower() == "prod":
+async def list_agents(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
+    src = (x_blaxing_source or "mock").lower()
+    if src in ("prod", "staging"):
         try:
-            data = forward_blaxing("GET", "/agents/list", x_api_key)
-            # Attempt to map upstream fields into Agent model
+            data = forward_blaxing("GET", "/agents/list", x_api_key, src, x_blaxing_base)
             items = []
             for it in data or []:
-                # passthrough or normalization
                 items.append(parse_agent({
                     "agent_id": it.get("agent_id") or it.get("id") or it.get("name"),
                     "name": it.get("name") or (it.get("agent_id") or "").capitalize(),
@@ -237,10 +246,10 @@ async def list_agents(x_blaxing_source: Optional[str] = Header(default="mock"), 
 
 
 @api_router.post("/agents/register", response_model=Agent)
-async def register_agent(payload: AgentCreate, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None)):
-    if (x_blaxing_source or "mock").lower() == "prod":
-        data = forward_blaxing("POST", "/agents/register", x_api_key, json=payload.model_dump())
-        # Normalize
+async def register_agent(payload: AgentCreate, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
+    src = (x_blaxing_source or "mock").lower()
+    if src in ("prod", "staging"):
+        data = forward_blaxing("POST", "/agents/register", x_api_key, src, x_blaxing_base, json=payload.model_dump())
         doc = {
             "agent_id": data.get("agent_id") or payload.agent_id,
             "name": data.get("name") or payload.name or payload.agent_id.capitalize(),
@@ -255,7 +264,6 @@ async def register_agent(payload: AgentCreate, x_blaxing_source: Optional[str] =
         }
         return parse_agent(doc)
 
-    # Mock path
     existing = await db.agents.find_one({"agent_id": payload.agent_id}, {"_id": 0})
     now = now_iso()
     base_doc = {
@@ -281,12 +289,12 @@ async def register_agent(payload: AgentCreate, x_blaxing_source: Optional[str] =
 
 
 @api_router.post("/agents/{agent_id}/activate")
-async def activate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None)):
-    if (x_blaxing_source or "mock").lower() == "prod":
-        _ = forward_blaxing("POST", f"/agents/{agent_id}/activate", x_api_key)
+async def activate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
+    src = (x_blaxing_source or "mock").lower()
+    if src in ("prod", "staging"):
+        _ = forward_blaxing("POST", f"/agents/{agent_id}/activate", x_api_key, src, x_blaxing_base)
         return {"ok": True, "agent_id": agent_id, "state": "active"}
 
-    # Mock path
     doc = await db.agents.find_one({"agent_id": agent_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -299,9 +307,10 @@ async def activate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header
 
 
 @api_router.post("/agents/{agent_id}/deactivate")
-async def deactivate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None)):
-    if (x_blaxing_source or "mock").lower() == "prod":
-        _ = forward_blaxing("POST", f"/agents/{agent_id}/deactivate", x_api_key)
+async def deactivate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
+    src = (x_blaxing_source or "mock").lower()
+    if src in ("prod", "staging"):
+        _ = forward_blaxing("POST", f"/agents/{agent_id}/deactivate", x_api_key, src, x_blaxing_base)
         return {"ok": True, "agent_id": agent_id, "state": "sleep"}
 
     doc = await db.agents.find_one({"agent_id": agent_id}, {"_id": 0})
@@ -316,10 +325,11 @@ async def deactivate_agent(agent_id: str, x_blaxing_source: Optional[str] = Head
 
 
 @api_router.get("/agents/{agent_id}/status")
-async def agent_status(agent_id: str, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None)):
-    if (x_blaxing_source or "mock").lower() == "prod":
+async def agent_status(agent_id: str, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
+    src = (x_blaxing_source or "mock").lower()
+    if src in ("prod", "staging"):
         try:
-            data = forward_blaxing("GET", f"/agents/{agent_id}/status", x_api_key)
+            data = forward_blaxing("GET", f"/agents/{agent_id}/status", x_api_key, src, x_blaxing_base)
             return {
                 "agent_id": agent_id,
                 "state": data.get("state", "sleep"),
@@ -327,7 +337,6 @@ async def agent_status(agent_id: str, x_blaxing_source: Optional[str] = Header(d
                 "status": data.get("status", "ok"),
             }
         except HTTPException:
-            # Fallback to mock status
             pass
 
     doc = await db.agents.find_one({"agent_id": agent_id}, {"_id": 0})

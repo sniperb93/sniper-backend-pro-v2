@@ -86,7 +86,7 @@ const AgentCard = ({ agent, onActivate, onDeactivate, onCheck }) => {
             Deactivate
           </Button>
           <Button
-            data-testid={`check-status-btn-${agent.agent_id}`}
+            data-testid={`check-status-btn-${agent.agent_id}`]
             onClick={() => onCheck(agent.agent_id)}
             variant="ghost"
             className="rounded-full hover:bg-neutral-100"
@@ -99,10 +99,10 @@ const AgentCard = ({ agent, onActivate, onDeactivate, onCheck }) => {
   );
 };
 
-const HeaderControls = ({ mode, setMode, apiKey, setApiKey, onApply }) => {
+const HeaderControls = ({ mode, setMode, apiKey, setApiKey, onApply, stagingBase, setStagingBase }) => {
   return (
     <div className="flex items-center gap-3" data-testid="header-controls">
-      <div className="w-40">
+      <div className="w-48">
         <Select value={mode} onValueChange={setMode}>
           <SelectTrigger data-testid="mode-select-trigger">
             <SelectValue placeholder="Mode" />
@@ -110,9 +110,20 @@ const HeaderControls = ({ mode, setMode, apiKey, setApiKey, onApply }) => {
           <SelectContent>
             <SelectItem data-testid="mode-option-mock" value="mock">Mock</SelectItem>
             <SelectItem data-testid="mode-option-prod" value="prod">Prod</SelectItem>
+            <SelectItem data-testid="mode-option-staging" value="staging">Staging</SelectItem>
           </SelectContent>
         </Select>
       </div>
+      {mode === "staging" && (
+        <Input
+          data-testid="staging-base-input"
+          type="text"
+          placeholder="https://staging.blaxing.fr/api"
+          value={stagingBase}
+          onChange={(e) => setStagingBase(e.target.value)}
+          className="w-96"
+        />
+      )}
       <Input
         data-testid="api-key-input"
         type="password"
@@ -132,14 +143,18 @@ const Dashboard = () => {
   const [agents, setAgents] = useState([]);
   const [mode, setMode] = useState("mock");
   const [apiKey, setApiKey] = useState("");
+  const [stagingBase, setStagingBase] = useState("");
   const [headers, setHeaders] = useState({ "x-blaxing-source": "mock" });
   const api = useAgentsApi(headers);
 
   const applyHeaders = () => {
     const base = { "x-blaxing-source": mode };
+    if (mode === "staging" && stagingBase) {
+      base["x-blaxing-base"] = stagingBase;
+    }
     const hdrs = apiKey ? { ...base, "X-API-KEY": apiKey } : base;
     setHeaders(hdrs);
-    toast({ title: "Headers applied", description: `Mode: ${mode}${apiKey ? " • API key set" : ""}` });
+    toast({ title: "Headers applied", description: `Mode: ${mode}${apiKey ? " • API key set" : ""}${mode === "staging" && stagingBase ? ` • base: ${stagingBase}` : ""}` });
   };
 
   const fetchAgents = async () => {
@@ -196,7 +211,7 @@ const Dashboard = () => {
             <h1 className="text-4xl font-semibold tracking-tight" data-testid="page-title">Blaxing Agents</h1>
             <p className="text-neutral-600 mt-2" data-testid="page-subtitle">Manage and supervise your AI agents.</p>
           </div>
-          <HeaderControls mode={mode} setMode={setMode} apiKey={apiKey} setApiKey={setApiKey} onApply={applyHeaders} />
+          <HeaderControls mode={mode} setMode={setMode} apiKey={apiKey} setApiKey={setApiKey} onApply={applyHeaders} stagingBase={stagingBase} setStagingBase={setStagingBase} />
         </div>
 
         {loading ? (
