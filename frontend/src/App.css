@@ -1,34 +1,19 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* Minimal global app styles. Avoid center-aligning the whole app. */
+:root {
+  --shadow-soft: 0 6px 30px rgba(0,0,0,0.06);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+.App {
+  min-height: 100vh;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+/* Card hover micro-interaction */
+.card-hover {
+  box-shadow: var(--shadow-soft);
 }
 
-.App-link {
-    color: #61dafb;
-}
-
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+/* Smooth buttons without global transform transitions */
+button {
+  transition-property: background-color, color, border-color, opacity;
+  transition-duration: 200ms;
 }
