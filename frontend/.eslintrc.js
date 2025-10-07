@@ -4,11 +4,7 @@ module.exports = {
     es2021: true,
     node: true
   },
-  extends: [
-    'eslint:recommended',
-    'plugin:react/recommended',
-    'plugin:react-hooks/recommended'
-  ],
+  extends: [],
   parserOptions: {
     ecmaFeatures: {
       jsx: true
@@ -16,19 +12,7 @@ module.exports = {
     ecmaVersion: 12,
     sourceType: 'module'
   },
-  plugins: [
-    'react',
-    'react-hooks'
-  ],
-  rules: {
-    'react-hooks/rules-of-hooks': 'error',
-    'react-hooks/exhaustive-deps': 'warn',
-    'react/prop-types': 'off',
-    'react/react-in-jsx-scope': 'off'
-  },
-  settings: {
-    react: {
-      version: 'detect'
-    }
-  }
+  plugins: [],
+  rules: {},
+  settings: {}
 };
