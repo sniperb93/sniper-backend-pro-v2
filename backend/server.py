@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
+import requests
 
 
 ROOT_DIR = Path(__file__).parent
@@ -18,6 +19,10 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# External Blaxing API base (prod). Not an internal service URL.
+BLAXING_API_BASE = os.environ.get("BLAXING_API_BASE", "https://blaxing.fr/api")
+REQ_TIMEOUT = 10
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -36,9 +41,9 @@ def parse_iso(dt_str: Optional[str]) -> Optional[datetime]:
     if dt_str is None:
         return None
     try:
-        return datetime.fromisoformat(dt_str)
+            return datetime.fromisoformat(dt_str)
     except Exception:
-        return None
+            return None
 
 
 # ---------- Models ----------
@@ -80,26 +85,10 @@ class Agent(BaseModel):
 # ---------- Seed Data ----------
 
 DEFAULT_AGENTS = [
-    {
-        "agent_id": "sniper",
-        "name": "Sniper",
-        "image": "blaxing/sniper:latest",
-    },
-    {
-        "agent_id": "crystal",
-        "name": "Crystal",
-        "image": "blaxing/crystal:latest",
-    },
-    {
-        "agent_id": "sonia",
-        "name": "Sonia",
-        "image": "blaxing/sonia:latest",
-    },
-    {
-        "agent_id": "corerouter",
-        "name": "CoreRouter",
-        "image": "blaxing/corerouter:latest",
-    },
+    {"agent_id": "sniper", "name": "Sniper", "image": "blaxing/sniper:latest"},
+    {"agent_id": "crystal", "name": "Crystal", "image": "blaxing/crystal:latest"},
+    {"agent_id": "sonia", "name": "Sonia", "image": "blaxing/sonia:latest"},
+    {"agent_id": "corerouter", "name": "CoreRouter", "image": "blaxing/corerouter:latest"},
 ]
 
 
@@ -160,7 +149,7 @@ async def get_status_checks():
     return status_checks
 
 
-# ---- Agent Manager (Mock) ----
+# ---- Agent Manager (Mock + Optional Remote Proxy) ----
 
 async def compute_uptime(doc: Dict[str, Any]) -> int:
     if doc.get("state") != "active":
@@ -191,11 +180,54 @@ def parse_agent(doc: Dict[str, Any]) -> Agent:
     )
 
 
+# --- Remote proxy helpers ---
+
+def forward_blaxing(method: str, path: str, api_key: Optional[str], json: Optional[dict] = None):
+    if not api_key:
+        raise HTTPException(status_code=401, detail="X-API-KEY required for prod mode")
+    url = f"{BLAXING_API_BASE}{path}"
+    headers = {"X-API-KEY": api_key}
+    try:
+        resp = requests.request(method, url, json=json, headers=headers, timeout=REQ_TIMEOUT)
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        return resp.json() if resp.text else {}
+    except requests.Timeout:
+        raise HTTPException(status_code=504, detail="Upstream timeout")
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Upstream error: {str(e)}")
+
+
+# The frontend will set header 'x-blaxing-source': 'prod' or 'mock'. Default is 'mock'.
+# For list/status calls, if prod fails, we fallback to mock and include source=fallback.
+
 @api_router.get("/agents/list", response_model=List[Agent])
-async def list_agents():
+async def list_agents(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None)):
+    if (x_blaxing_source or "mock").lower() == "prod":
+        try:
+            data = forward_blaxing("GET", "/agents/list", x_api_key)
+            # Attempt to map upstream fields into Agent model
+            items = []
+            for it in data or []:
+                # passthrough or normalization
+                items.append(parse_agent({
+                    "agent_id": it.get("agent_id") or it.get("id") or it.get("name"),
+                    "name": it.get("name") or (it.get("agent_id") or "").capitalize(),
+                    "image": it.get("image"),
+                    "env": it.get("env") or {},
+                    "state": it.get("state", "sleep"),
+                    "uptime": it.get("uptime", 0),
+                    "created_at": it.get("created_at") or now_iso(),
+                    "updated_at": it.get("updated_at") or now_iso(),
+                    "activated_at": it.get("activated_at"),
+                    "last_heartbeat": it.get("last_heartbeat"),
+                }))
+            return items
+        except HTTPException:
+            # Fallback to mock list
+            pass
     await ensure_seed_agents()
     items = await db.agents.find({}, {"_id": 0}).to_list(length=None)
-    # Compute uptime live
     result: List[Agent] = []
     for it in items:
         it = dict(it)
@@ -205,8 +237,25 @@ async def list_agents():
 
 
 @api_router.post("/agents/register", response_model=Agent)
-async def register_agent(payload: AgentCreate):
-    # Upsert by agent_id
+async def register_agent(payload: AgentCreate, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None)):
+    if (x_blaxing_source or "mock").lower() == "prod":
+        data = forward_blaxing("POST", "/agents/register", x_api_key, json=payload.model_dump())
+        # Normalize
+        doc = {
+            "agent_id": data.get("agent_id") or payload.agent_id,
+            "name": data.get("name") or payload.name or payload.agent_id.capitalize(),
+            "image": data.get("image"),
+            "env": data.get("env") or {},
+            "state": data.get("state", "sleep"),
+            "created_at": data.get("created_at") or now_iso(),
+            "updated_at": data.get("updated_at") or now_iso(),
+            "activated_at": data.get("activated_at"),
+            "last_heartbeat": data.get("last_heartbeat"),
+            "uptime": data.get("uptime", 0),
+        }
+        return parse_agent(doc)
+
+    # Mock path
     existing = await db.agents.find_one({"agent_id": payload.agent_id}, {"_id": 0})
     now = now_iso()
     base_doc = {
@@ -215,28 +264,29 @@ async def register_agent(payload: AgentCreate):
         "image": payload.image,
         "env": payload.env or {},
         "state": "sleep",
-        "created_at": now,
+        "created_at": existing.get("created_at") if existing else now,
         "updated_at": now,
         "activated_at": None,
         "last_heartbeat": None,
     }
-    if existing:
-        # Keep original created_at
-        base_doc["created_at"] = existing.get("created_at", now)
     await db.agents.update_one(
         {"agent_id": payload.agent_id},
         {"$set": base_doc},
         upsert=True,
     )
     doc = await db.agents.find_one({"agent_id": payload.agent_id}, {"_id": 0})
-    # Attach computed uptime
     doc = dict(doc)
     doc["uptime"] = await compute_uptime(doc)
     return parse_agent(doc)
 
 
 @api_router.post("/agents/{agent_id}/activate")
-async def activate_agent(agent_id: str):
+async def activate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None)):
+    if (x_blaxing_source or "mock").lower() == "prod":
+        _ = forward_blaxing("POST", f"/agents/{agent_id}/activate", x_api_key)
+        return {"ok": True, "agent_id": agent_id, "state": "active"}
+
+    # Mock path
     doc = await db.agents.find_one({"agent_id": agent_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -249,7 +299,11 @@ async def activate_agent(agent_id: str):
 
 
 @api_router.post("/agents/{agent_id}/deactivate")
-async def deactivate_agent(agent_id: str):
+async def deactivate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None)):
+    if (x_blaxing_source or "mock").lower() == "prod":
+        _ = forward_blaxing("POST", f"/agents/{agent_id}/deactivate", x_api_key)
+        return {"ok": True, "agent_id": agent_id, "state": "sleep"}
+
     doc = await db.agents.find_one({"agent_id": agent_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -262,7 +316,20 @@ async def deactivate_agent(agent_id: str):
 
 
 @api_router.get("/agents/{agent_id}/status")
-async def agent_status(agent_id: str):
+async def agent_status(agent_id: str, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None)):
+    if (x_blaxing_source or "mock").lower() == "prod":
+        try:
+            data = forward_blaxing("GET", f"/agents/{agent_id}/status", x_api_key)
+            return {
+                "agent_id": agent_id,
+                "state": data.get("state", "sleep"),
+                "uptime": int(data.get("uptime", 0)) if str(data.get("uptime", "0")).isdigit() else 0,
+                "status": data.get("status", "ok"),
+            }
+        except HTTPException:
+            # Fallback to mock status
+            pass
+
     doc = await db.agents.find_one({"agent_id": agent_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Agent not found")

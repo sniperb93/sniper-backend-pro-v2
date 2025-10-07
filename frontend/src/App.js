@@ -7,12 +7,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const useAgentsApi = () => {
+const useAgentsApi = (headers) => {
   const api = useMemo(() => axios.create({ baseURL: API }), []);
+  // apply headers on each request
+  useEffect(() => {
+    api.defaults.headers.common = { ...api.defaults.headers.common, ...headers };
+  }, [api, headers]);
   return {
     list: () => api.get("/agents/list").then((r) => r.data),
     register: (payload) => api.post("/agents/register", payload).then((r) => r.data),
@@ -93,11 +99,48 @@ const AgentCard = ({ agent, onActivate, onDeactivate, onCheck }) => {
   );
 };
 
+const HeaderControls = ({ mode, setMode, apiKey, setApiKey, onApply }) => {
+  return (
+    <div className="flex items-center gap-3" data-testid="header-controls">
+      <div className="w-40">
+        <Select value={mode} onValueChange={setMode}>
+          <SelectTrigger data-testid="mode-select-trigger">
+            <SelectValue placeholder="Mode" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem data-testid="mode-option-mock" value="mock">Mock</SelectItem>
+            <SelectItem data-testid="mode-option-prod" value="prod">Prod</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <Input
+        data-testid="api-key-input"
+        type="password"
+        placeholder="X-API-KEY"
+        value={apiKey}
+        onChange={(e) => setApiKey(e.target.value)}
+        className="w-64"
+      />
+      <Button data-testid="apply-headers-btn" className="rounded-full bg-stone-900 text-white hover:bg-stone-800" onClick={onApply}>Apply</Button>
+    </div>
+  );
+};
+
 const Dashboard = () => {
-  const api = useAgentsApi();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState([]);
+  const [mode, setMode] = useState("mock");
+  const [apiKey, setApiKey] = useState("");
+  const [headers, setHeaders] = useState({ "x-blaxing-source": "mock" });
+  const api = useAgentsApi(headers);
+
+  const applyHeaders = () => {
+    const base = { "x-blaxing-source": mode };
+    const hdrs = apiKey ? { ...base, "X-API-KEY": apiKey } : base;
+    setHeaders(hdrs);
+    toast({ title: "Headers applied", description: `Mode: ${mode}${apiKey ? " • API key set" : ""}` });
+  };
 
   const fetchAgents = async () => {
     setLoading(true);
@@ -113,13 +156,12 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchAgents();
-  }, []);
+  }, [headers]);
 
   const handleActivate = async (id) => {
     try {
       await api.activate(id);
       toast({ title: `Activated ${id}` });
-      // optimistic update
       setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: "active" } : a)));
     } catch (e) {
       toast({ title: `Activate failed`, description: String(e), variant: "destructive" });
@@ -140,7 +182,6 @@ const Dashboard = () => {
     try {
       const res = await api.status(id);
       toast({ title: `${id} • ${res.state}`, description: `Uptime ${prettyUptime(res.uptime)}` });
-      // sync uptime
       setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: res.state, uptime: res.uptime } : a)));
     } catch (e) {
       toast({ title: `Status failed`, description: String(e), variant: "destructive" });
@@ -155,15 +196,7 @@ const Dashboard = () => {
             <h1 className="text-4xl font-semibold tracking-tight" data-testid="page-title">Blaxing Agents</h1>
             <p className="text-neutral-600 mt-2" data-testid="page-subtitle">Manage and supervise your AI agents.</p>
           </div>
-          <div className="flex gap-2">
-            <Button
-              data-testid="refresh-agents-btn"
-              onClick={fetchAgents}
-              className="rounded-full bg-stone-900 text-white hover:bg-stone-800"
-            >
-              Refresh
-            </Button>
-          </div>
+          <HeaderControls mode={mode} setMode={setMode} apiKey={apiKey} setApiKey={setApiKey} onApply={applyHeaders} />
         </div>
 
         {loading ? (
