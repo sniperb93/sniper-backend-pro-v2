@@ -168,7 +168,7 @@ const WorkflowsDrawer = ({ open, setOpen, api, toast }) => {
       if (res?.dry_run) toast({ title: `Test ${type} (dry run)`, description: flow });
       else toast({ title: `Test ${type} sent`, description: flow });
     } catch (e) {
-      toast({ title: `Test ${type} failed`, description: e.message, variant: "destructive" });
+      handleError(`test ${type}`, e);
     }
   };
 
