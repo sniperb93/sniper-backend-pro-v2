@@ -283,7 +283,7 @@ const Dashboard = () => {
       toast({ title: `Activated ${id}` });
       setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: "active" } : a)));
     } catch (e) {
-      toast({ title: "Activate failed", description: e.message, variant: "destructive" });
+      handleDashError("activate", e);
     }
   };
 
