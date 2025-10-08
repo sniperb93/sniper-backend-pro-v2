@@ -303,7 +303,7 @@ const Dashboard = () => {
       toast({ title: `${id} • ${res.state}`, description: `Uptime ${prettyUptime(res.uptime)}` });
       setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: res.state, uptime: res.uptime } : a)));
     } catch (e) {
-      toast({ title: "Status failed", description: e.message, variant: "destructive" });
+      handleDashError("status", e);
     }
   };
 
