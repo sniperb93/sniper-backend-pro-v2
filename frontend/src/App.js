@@ -123,7 +123,7 @@ const WorkflowsDrawer = ({ open, setOpen, api, toast }) => {
         status_change_flow: data.status_change_flow || "",
       });
     } catch (e) {
-      toast({ title: "Failed to load config", description: String(e), variant: "destructive" });
+      toast({ title: "Failed to load config", description: e.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -139,7 +139,7 @@ const WorkflowsDrawer = ({ open, setOpen, api, toast }) => {
       await api.saveHooksConfig(cfg);
       toast({ title: "Workflows saved" });
     } catch (e) {
-      toast({ title: "Save failed", description: String(e), variant: "destructive" });
+      toast({ title: "Save failed", description: e.message, variant: "destructive" });
     }
   };
 
@@ -156,7 +156,7 @@ const WorkflowsDrawer = ({ open, setOpen, api, toast }) => {
       if (res?.dry_run) toast({ title: `Test ${type} (dry run)`, description: flow });
       else toast({ title: `Test ${type} sent`, description: flow });
     } catch (e) {
-      toast({ title: `Test ${type} failed`, description: String(e), variant: "destructive" });
+      toast({ title: `Test ${type} failed`, description: e.message, variant: "destructive" });
     }
   };
 
@@ -246,7 +246,7 @@ const Dashboard = () => {
       const data = await api.list();
       setAgents(data);
     } catch (e) {
-      toast({ title: "Failed to load agents", description: String(e), variant: "destructive" });
+      toast({ title: "Failed to load agents", description: e.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -260,7 +260,7 @@ const Dashboard = () => {
       toast({ title: `Activated ${id}` });
       setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: "active" } : a)));
     } catch (e) {
-      toast({ title: "Activate failed", description: String(e), variant: "destructive" });
+      toast({ title: "Activate failed", description: e.message, variant: "destructive" });
     }
   };
 
@@ -270,7 +270,7 @@ const Dashboard = () => {
       toast({ title: `Deactivated ${id}` });
       setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: "sleep", uptime: 0 } : a)));
     } catch (e) {
-      toast({ title: "Deactivate failed", description: String(e), variant: "destructive" });
+      toast({ title: "Deactivate failed", description: e.message, variant: "destructive" });
     }
   };
 
@@ -280,7 +280,7 @@ const Dashboard = () => {
       toast({ title: `${id} • ${res.state}`, description: `Uptime ${prettyUptime(res.uptime)}` });
       setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: res.state, uptime: res.uptime } : a)));
     } catch (e) {
-      toast({ title: "Status failed", description: String(e), variant: "destructive" });
+      toast({ title: "Status failed", description: e.message, variant: "destructive" });
     }
   };
 
@@ -290,7 +290,7 @@ const Dashboard = () => {
       if (res?.dry_run) toast({ title: "Activate-All (dry run)", description: "No changes applied on upstream" });
       else { toast({ title: "All agents activated" }); fetchAgents(); }
     } catch (e) {
-      toast({ title: "Activate-All failed", description: String(e), variant: "destructive" });
+      toast({ title: "Activate-All failed", description: e.message, variant: "destructive" });
     }
   };
 
@@ -300,7 +300,7 @@ const Dashboard = () => {
       if (res?.dry_run) toast({ title: "Deactivate-All (dry run)", description: "No changes applied on upstream" });
       else { toast({ title: "All agents deactivated" }); fetchAgents(); }
     } catch (e) {
-      toast({ title: "Deactivate-All failed", description: String(e), variant: "destructive" });
+      toast({ title: "Deactivate-All failed", description: e.message, variant: "destructive" });
     }
   };
 
