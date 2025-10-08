@@ -70,6 +70,10 @@ class RegisterAgentPayload(BaseModel):
     image: str
     env: Dict[str, Any] = Field(default_factory=dict)
 
+class N8nTriggerUrlPayload(BaseModel):
+    url: str
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
 # Helpers
 async def log_audit(entry: AuditEntry) -> None:
     try:
@@ -198,7 +202,7 @@ async def agents_deactivate_all():
     await log_audit(AuditEntry(action='agents_deactivate_all', method='POST', path='/agents/deactivate-all', success=True, upstream_status=result['status']))
     return result['data']
 
-# --- n8n trigger endpoint ---
+# --- n8n trigger endpoints ---
 @api_router.post("/n8n/trigger/{flow}")
 async def n8n_trigger(flow: str, payload: Dict[str, Any]):
     if not N8N_WEBHOOK_BASE:
@@ -220,6 +224,32 @@ async def n8n_trigger(flow: str, payload: Dict[str, Any]):
         return data
     except httpx.RequestError as e:
         await log_audit(AuditEntry(action='n8n_trigger', method='POST', path=f'/webhook/{flow}', success=False, error=str(e)[:400]))
+        raise HTTPException(status_code=502, detail="Failed to reach n8n")
+
+@api_router.post("/n8n/trigger-url")
+async def n8n_trigger_url(body: N8nTriggerUrlPayload):
+    # allow absolute test webhook URL (e.g., http://31.97.193.13:5678/webhook-test/<token>)
+    url = body.url
+    if not (url.startswith('http://') or url.startswith('https://')):
+        raise HTTPException(status_code=400, detail="Invalid URL")
+    headers = {'Content-Type': 'application/json'}
+    if N8N_WEBHOOK_AUTH:
+        headers['Authorization'] = N8N_WEBHOOK_AUTH
+    try:
+        resp = await httpx_client.post(url, headers=headers, json=body.payload)
+        try:
+            data = resp.json()
+        except Exception:
+            data = {'text': resp.text}
+        masked_path = url[:40] + '...' + url[-6:] if len(url) > 50 else url
+        if resp.status_code >= 400:
+            await log_audit(AuditEntry(action='n8n_trigger_url', method='POST', path=masked_path, success=False, upstream_status=resp.status_code, error=str(data)[:400]))
+            raise HTTPException(status_code=resp.status_code, detail=data)
+        await log_audit(AuditEntry(action='n8n_trigger_url', method='POST', path=masked_path, success=True, upstream_status=resp.status_code))
+        return data
+    except httpx.RequestError as e:
+        masked_path = url[:40] + '...' + url[-6:] if len(url) > 50 else url
+        await log_audit(AuditEntry(action='n8n_trigger_url', method='POST', path=masked_path, success=False, error=str(e)[:400]))
         raise HTTPException(status_code=502, detail="Failed to reach n8n")
 
 # --- Audit queries ---

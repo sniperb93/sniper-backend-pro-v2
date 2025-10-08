@@ -32,6 +32,8 @@ export default function App() {
   const [audit, setAudit] = useState([]);
   const [flow, setFlow] = useState("");
   const [flowPayload, setFlowPayload] = useState("{\n  \"demo\": true\n}");
+  const [absUrl, setAbsUrl] = useState("");
+  const [absPayload, setAbsPayload] = useState("{\n  \"demo\": true\n}");
   const [log, setLog] = useState("");
 
   const logLine = (msg) => setLog((l) => `${new Date().toLocaleTimeString()} - ${msg}\n${l}`);
@@ -138,6 +140,23 @@ export default function App() {
     }
   };
 
+  const triggerAbsolute = async () => {
+    if (!absUrl) { alert("Enter absolute webhook URL"); return; }
+    let payload = {};
+    try { payload = JSON.parse(absPayload || "{}"); } catch (e) { alert("Invalid JSON"); return; }
+    try {
+      setLoading(true);
+      const { data } = await api.post(`/n8n/trigger-url`, { url: absUrl, payload });
+      logLine(`n8n-absolute: ${JSON.stringify(data)}`);
+      await fetchAudit();
+    } catch (e) {
+      console.error(e);
+      logLine(`n8n-absolute failed`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchConfig();
     fetchAgents();
@@ -191,11 +210,19 @@ export default function App() {
           </div>
         </Section>
 
-        <Section title="n8n Webhook Trigger">
+        <Section title="n8n Webhook Trigger (flow)">
           <div className="n8n-form">
             <input data-testid="n8n-flow-input" placeholder="workflow name e.g., trade_alerts_flow" value={flow} onChange={(e) => setFlow(e.target.value)} />
             <textarea data-testid="n8n-payload-input" rows={6} value={flowPayload} onChange={(e) => setFlowPayload(e.target.value)} />
             <button data-testid="n8n-trigger-btn" disabled={loading} onClick={triggerFlow}>Trigger Flow</button>
+          </div>
+        </Section>
+
+        <Section title="n8n Absolute Webhook URL">
+          <div className="n8n-form">
+            <input data-testid="n8n-abs-url-input" placeholder="https://host:5678/webhook-test/<token>" value={absUrl} onChange={(e) => setAbsUrl(e.target.value)} />
+            <textarea data-testid="n8n-abs-payload-input" rows={6} value={absPayload} onChange={(e) => setAbsPayload(e.target.value)} />
+            <button data-testid="n8n-abs-trigger-btn" disabled={loading} onClick={triggerAbsolute}>Trigger Absolute</button>
           </div>
         </Section>
 
