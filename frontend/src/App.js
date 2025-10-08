@@ -223,6 +223,17 @@ const HeaderControls = ({ mode, setMode, apiKey, setApiKey, onApply, stagingBase
         <Input data-testid="staging-base-input" type="text" placeholder="https://staging.blaxing.fr/api" value={stagingBase} onChange={(e) => setStagingBase(e.target.value)} className="w-96" />
       )}
       <Input data-testid="api-key-input" type="password" placeholder="X-API-KEY" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-64" />
+  // Centralized error handler on main dashboard scope
+  const handleDashError = (action, e) => {
+    // eslint-disable-next-line no-console
+    console.error(`[Blaxing Error - ${action}]`, e?.response?.data || e);
+    toast({
+      title: `${action} failed`,
+      description: e?.response?.data?.detail || e?.message || "Unknown error",
+      variant: "destructive",
+    });
+  };
+
       <Button data-testid="apply-headers-btn" className="rounded-full bg-stone-900 text-white hover:bg-stone-800" onClick={onApply}>Apply</Button>
       <div className="hidden md:flex gap-2 pl-2">
         <Button data-testid="activate-all-btn" className="rounded-full bg-emerald-600 text-white hover:bg-emerald-700" onClick={onActivateAll}>Activate All</Button>
