@@ -236,6 +236,18 @@ async def list_agents(x_blaxing_source: Optional[str] = Header(default="mock"), 
             return items
         except HTTPException:
             # Fallback to mock list
+            pass
+    
+    # Mock fallback: return seeded agents
+    await ensure_seed_agents()
+    items = await db.agents.find({}, {"_id": 0}).to_list(length=None)
+    result: List[Agent] = []
+    for it in items:
+        it = dict(it)
+        it["uptime"] = await compute_uptime(it)
+        result.append(parse_agent(it))
+    return result
+
 
 @api_router.get("/health")
 async def health(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
@@ -249,16 +261,6 @@ async def health(x_blaxing_source: Optional[str] = Header(default="mock"), x_api
             # Report upstream error but keep service live
             raise e
     return {"status": "ok", "source": "mock"}
-
-            pass
-    await ensure_seed_agents()
-    items = await db.agents.find({}, {"_id": 0}).to_list(length=None)
-    result: List[Agent] = []
-    for it in items:
-        it = dict(it)
-        it["uptime"] = await compute_uptime(it)
-        result.append(parse_agent(it))
-    return result
 
 
 @api_router.post("/agents/register", response_model=Agent)
