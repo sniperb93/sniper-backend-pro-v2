@@ -20,9 +20,10 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# External Blaxing API base (prod). Not an internal service URL.
+# External endpoints (not internal service URLs)
 BLAXING_API_BASE = os.environ.get("BLAXING_API_BASE", "https://blaxing.fr/api")
 BLAXING_STAGING_API_BASE = os.environ.get("BLAXING_STAGING_API_BASE", "https://staging.blaxing.fr/api")
+N8N_WEBHOOK_BASE = os.environ.get("N8N_WEBHOOK_BASE", "https://n8n.blaxing.fr/webhook")
 REQ_TIMEOUT = 10
 EMERGENT_DRY_RUN = os.environ.get("EMERGENT_DRY_RUN", "true").lower() == "true"
 
@@ -33,7 +34,7 @@ app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 
-# ---------- Helpers for datetime serialization ----------
+# ---------- Helpers ----------
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -51,8 +52,7 @@ def parse_iso(dt_str: Optional[str]) -> Optional[datetime]:
 # ---------- Models ----------
 
 class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-
+    model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     client_name: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -71,17 +71,28 @@ class AgentCreate(BaseModel):
 
 class Agent(BaseModel):
     model_config = ConfigDict(extra="ignore")
-
     agent_id: str
     name: str
     image: Optional[str] = None
     env: Dict[str, str] = Field(default_factory=dict)
-    state: str = Field(default="sleep")  # "active" | "sleep"
-    uptime: int = 0  # seconds (computed server-side)
+    state: str = Field(default="sleep")
+    uptime: int = 0
     created_at: datetime
     updated_at: datetime
     activated_at: Optional[datetime] = None
     last_heartbeat: Optional[datetime] = None
+
+
+class HooksConfig(BaseModel):
+    activation_flow: Optional[str] = None
+    deactivation_flow: Optional[str] = None
+    status_change_flow: Optional[str] = None
+
+
+class HookNotifyRequest(BaseModel):
+    flow: str
+    event: str
+    data: Dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------- Seed Data ----------
@@ -118,6 +129,52 @@ async def ensure_seed_agents():
         logger.exception(f"Seeding agents failed: {e}")
 
 
+# ---------- N8N helpers ----------
+
+def n8n_target(flow: str, custom_base: Optional[str] = None) -> str:
+    base = (custom_base or N8N_WEBHOOK_BASE).rstrip('/')
+    return f"{base}/{flow}"
+
+
+def send_n8n(flow: str, payload: Dict[str, Any], custom_base: Optional[str] = None) -> Dict[str, Any]:
+    url = n8n_target(flow, custom_base)
+    if EMERGENT_DRY_RUN:
+        return {"ok": True, "dry_run": True, "url": url, "payload": payload}
+    try:
+        resp = requests.post(url, json=payload, timeout=REQ_TIMEOUT)
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=f"n8n error: {resp.text}")
+        return {"ok": True, "status": resp.status_code}
+    except requests.Timeout:
+        raise HTTPException(status_code=504, detail="n8n timeout")
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"n8n upstream error: {str(e)}")
+
+
+async def get_hooks_config() -> HooksConfig:
+    doc = await db.config.find_one({"_id": "webhooks"}, {"_id": 0})
+    if not doc:
+        return HooksConfig()
+    return HooksConfig(**doc)
+
+
+async def set_hooks_config(cfg: HooksConfig) -> HooksConfig:
+    await db.config.update_one({"_id": "webhooks"}, {"$set": cfg.model_dump()}, upsert=True)
+    return await get_hooks_config()
+
+
+async def emit_event(flow: Optional[str], event: str, data: Dict[str, Any]):
+    if not flow:
+        return {"ok": True, "skipped": True, "reason": "no-flow"}
+    payload = {"event": event, "data": data, "timestamp": now_iso()}
+    try:
+        return send_n8n(flow, payload)
+    except HTTPException as e:
+        # Don't block main operation
+        logger.warning(f"n8n emit failed: {e.detail}")
+        return {"ok": False, "error": e.detail}
+
+
 # ---------- Routes ----------
 
 @api_router.get("/")
@@ -129,25 +186,18 @@ async def root():
 async def create_status_check(input: StatusCheckCreate):
     status_dict = input.model_dump()
     status_obj = StatusCheck(**status_dict)
-
-    # Convert to dict and serialize datetime to ISO string for MongoDB
     doc = status_obj.model_dump()
     doc['timestamp'] = doc['timestamp'].isoformat()
-
     _ = await db.status_checks.insert_one(doc)
     return status_obj
 
 
 @api_router.get("/status", response_model=List[StatusCheck])
 async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
     status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-
-    # Convert ISO string timestamps back to datetime objects
     for check in status_checks:
         if isinstance(check.get('timestamp'), str):
             check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-
     return status_checks
 
 
@@ -163,7 +213,6 @@ async def compute_uptime(doc: Dict[str, Any]) -> int:
 
 
 def parse_agent(doc: Dict[str, Any]) -> Agent:
-    # Convert ISO string fields to datetime objects
     parsed = dict(doc)
     for k in ["created_at", "updated_at", "activated_at", "last_heartbeat"]:
         if isinstance(parsed.get(k), str):
@@ -193,7 +242,6 @@ def resolve_base_from_header(source: str, header_base: Optional[str]) -> str:
 
 
 def forward_blaxing(method: str, path: str, api_key: Optional[str], source: str, header_base: Optional[str], json: Optional[dict] = None):
-    # Prefer explicit header, fallback to env BLA_API_KEY
     key = api_key or os.environ.get("BLA_API_KEY")
     if not key:
         raise HTTPException(status_code=401, detail="X-API-KEY required for prod/staging mode")
@@ -211,8 +259,7 @@ def forward_blaxing(method: str, path: str, api_key: Optional[str], source: str,
         raise HTTPException(status_code=502, detail=f"Upstream error: {str(e)}")
 
 
-# The frontend will set header 'x-blaxing-source': 'prod' | 'staging' | 'mock'. Default is 'mock'.
-# Optional header 'x-blaxing-base' can override upstream base URL.
+# The frontend sets 'x-blaxing-source': 'prod' | 'staging' | 'mock'. Default 'mock'.
 
 @api_router.get("/agents/list", response_model=List[Agent])
 async def list_agents(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
@@ -236,9 +283,7 @@ async def list_agents(x_blaxing_source: Optional[str] = Header(default="mock"), 
                 }))
             return items
         except HTTPException:
-            # Fallback to mock list
             pass
-    # Mock fallback
     await ensure_seed_agents()
     items = await db.agents.find({}, {"_id": 0}).to_list(length=None)
     result: List[Agent] = []
@@ -303,11 +348,7 @@ async def register_agent(payload: AgentCreate, x_blaxing_source: Optional[str] =
         "activated_at": None,
         "last_heartbeat": None,
     }
-    await db.agents.update_one(
-        {"agent_id": payload.agent_id},
-        {"$set": base_doc},
-        upsert=True,
-    )
+    await db.agents.update_one({"agent_id": payload.agent_id}, {"$set": base_doc}, upsert=True)
     doc = await db.agents.find_one({"agent_id": payload.agent_id}, {"_id": 0})
     doc = dict(doc)
     doc["uptime"] = await compute_uptime(doc)
@@ -322,7 +363,6 @@ async def activate_all(x_blaxing_source: Optional[str] = Header(default="mock"),
             return {"ok": True, "dry_run": True, "action": "activate-all"}
         _ = forward_blaxing("POST", "/agents/activate-all", x_api_key, src, x_blaxing_base)
         return {"ok": True, "action": "activate-all"}
-    # Mock: set all to active
     await ensure_seed_agents()
     now = now_iso()
     res = await db.agents.update_many({}, {"$set": {"state": "active", "activated_at": now, "updated_at": now}})
@@ -337,7 +377,6 @@ async def deactivate_all(x_blaxing_source: Optional[str] = Header(default="mock"
             return {"ok": True, "dry_run": True, "action": "deactivate-all"}
         _ = forward_blaxing("POST", "/agents/deactivate-all", x_api_key, src, x_blaxing_base)
         return {"ok": True, "action": "deactivate-all"}
-    # Mock: set all to sleep
     await ensure_seed_agents()
     now = now_iso()
     res = await db.agents.update_many({}, {"$set": {"state": "sleep", "updated_at": now}})
@@ -349,18 +388,22 @@ async def activate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header
     src = (x_blaxing_source or "mock").lower()
     if src in ("prod", "staging"):
         if EMERGENT_DRY_RUN:
+            # Emit webhook and return dry-run
+            cfg = await get_hooks_config()
+            await emit_event(cfg.activation_flow, "agent_activation", {"agent_id": agent_id, "source": src})
             return {"ok": True, "dry_run": True, "agent_id": agent_id, "state": "active"}
         _ = forward_blaxing("POST", f"/agents/{agent_id}/activate", x_api_key, src, x_blaxing_base)
+        cfg = await get_hooks_config()
+        await emit_event(cfg.activation_flow, "agent_activation", {"agent_id": agent_id, "source": src})
         return {"ok": True, "agent_id": agent_id, "state": "active"}
 
     doc = await db.agents.find_one({"agent_id": agent_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Agent not found")
     now = now_iso()
-    await db.agents.update_one(
-        {"agent_id": agent_id},
-        {"$set": {"state": "active", "activated_at": now, "updated_at": now}}
-    )
+    await db.agents.update_one({"agent_id": agent_id}, {"$set": {"state": "active", "activated_at": now, "updated_at": now}})
+    cfg = await get_hooks_config()
+    await emit_event(cfg.activation_flow, "agent_activation", {"agent_id": agent_id, "source": "mock"})
     return {"ok": True, "agent_id": agent_id, "state": "active"}
 
 
@@ -369,18 +412,21 @@ async def deactivate_agent(agent_id: str, x_blaxing_source: Optional[str] = Head
     src = (x_blaxing_source or "mock").lower()
     if src in ("prod", "staging"):
         if EMERGENT_DRY_RUN:
+            cfg = await get_hooks_config()
+            await emit_event(cfg.deactivation_flow, "agent_deactivation", {"agent_id": agent_id, "source": src})
             return {"ok": True, "dry_run": True, "agent_id": agent_id, "state": "sleep"}
         _ = forward_blaxing("POST", f"/agents/{agent_id}/deactivate", x_api_key, src, x_blaxing_base)
+        cfg = await get_hooks_config()
+        await emit_event(cfg.deactivation_flow, "agent_deactivation", {"agent_id": agent_id, "source": src})
         return {"ok": True, "agent_id": agent_id, "state": "sleep"}
 
     doc = await db.agents.find_one({"agent_id": agent_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Agent not found")
     now = now_iso()
-    await db.agents.update_one(
-        {"agent_id": agent_id},
-        {"$set": {"state": "sleep", "updated_at": now}}
-    )
+    await db.agents.update_one({"agent_id": agent_id}, {"$set": {"state": "sleep", "updated_at": now}})
+    cfg = await get_hooks_config()
+    await emit_event(cfg.deactivation_flow, "agent_deactivation", {"agent_id": agent_id, "source": "mock"})
     return {"ok": True, "agent_id": agent_id, "state": "sleep"}
 
 
@@ -390,25 +436,47 @@ async def agent_status(agent_id: str, x_blaxing_source: Optional[str] = Header(d
     if src in ("prod", "staging"):
         try:
             data = forward_blaxing("GET", f"/agents/{agent_id}/status", x_api_key, src, x_blaxing_base)
-            return {
-                "agent_id": agent_id,
-                "state": data.get("state", "sleep"),
-                "uptime": int(data.get("uptime", 0)) if str(data.get("uptime", "0")).isdigit() else 0,
-                "status": data.get("status", "ok"),
-            }
+            state = data.get("state", "sleep")
+            uptime = int(data.get("uptime", 0)) if str(data.get("uptime", "0")).isdigit() else 0
+            # status change detection cache
+            cached = await db.agent_state_cache.find_one({"agent_id": agent_id}, {"_id": 0})
+            if not cached or cached.get("state") != state:
+                await db.agent_state_cache.update_one({"agent_id": agent_id}, {"$set": {"state": state, "updated_at": now_iso()}}, upsert=True)
+                cfg = await get_hooks_config()
+                await emit_event(cfg.status_change_flow, "status_change", {"agent_id": agent_id, "state": state, "source": src})
+            return {"agent_id": agent_id, "state": state, "uptime": uptime, "status": data.get("status", "ok")}
         except HTTPException:
             pass
 
     doc = await db.agents.find_one({"agent_id": agent_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Agent not found")
+    state = doc.get("state", "sleep")
     uptime = await compute_uptime(doc)
-    return {
-        "agent_id": agent_id,
-        "state": doc.get("state", "sleep"),
-        "uptime": uptime,
-        "status": "ok",
-    }
+    cached = await db.agent_state_cache.find_one({"agent_id": agent_id}, {"_id": 0})
+    if not cached or cached.get("state") != state:
+        await db.agent_state_cache.update_one({"agent_id": agent_id}, {"$set": {"state": state, "updated_at": now_iso()}}, upsert=True)
+        cfg = await get_hooks_config()
+        await emit_event(cfg.status_change_flow, "status_change", {"agent_id": agent_id, "state": state, "source": "mock"})
+    return {"agent_id": agent_id, "state": state, "uptime": uptime, "status": "ok"}
+
+
+# ---- Hooks management ----
+
+@api_router.get("/hooks/config", response_model=HooksConfig)
+async def hooks_get_config():
+    return await get_hooks_config()
+
+
+@api_router.post("/hooks/config", response_model=HooksConfig)
+async def hooks_set_config(cfg: HooksConfig):
+    return await set_hooks_config(cfg)
+
+
+@api_router.post("/hooks/notify")
+async def hooks_notify(body: HookNotifyRequest):
+    res = send_n8n(body.flow, {"event": body.event, "data": body.data, "timestamp": now_iso()})
+    return res
 
 
 # Include the router in the main app
@@ -423,10 +491,7 @@ app.add_middleware(
 )
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
