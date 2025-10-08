@@ -18,7 +18,7 @@
 .section-body { background: #111; border: 1px solid #222; border-radius: 8px; padding: 16px; color: #eaeaea; }
 .kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .actions { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-button { background: #1f6feb; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+button { background: #1f6feb; color: white; border: none; padding: 8px 12px; border-radius: 20px; cursor: pointer; }
 button:disabled { opacity: 0.6; cursor: not-allowed; }
 .agents-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .agent-card { background: #0f172a; border: 1px solid #1f2937; padding: 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
@@ -30,3 +30,4 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .audit-list { display: grid; gap: 6px; }
 .audit-row { display: grid; grid-template-columns: 180px 1fr 120px 60px 80px; gap: 8px; background: #0b1220; padding: 8px; border-radius: 6px; }
 .logbox { background: #0b1220; border: 1px solid #223; padding: 8px; min-height: 120px; border-radius: 6px; overflow: auto; }
+.quick-actions { display: flex; gap: 12px; flex-wrap: wrap; }

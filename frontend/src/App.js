@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import "@/App.css";
 import axios from "axios";
+import { Toaster, toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const defaultAgents = ["sniper", "crystal", "sonia", "corerouter"];
+const N8N_ABS_BASE = "http://31.97.193.13:5678/webhook-test";
 
 function useApi() {
   const api = useMemo(() => {
@@ -130,11 +132,29 @@ export default function App() {
     try {
       setLoading(true);
       const { data } = await api.post(`/n8n/trigger/${encodeURIComponent(flow)}`, json);
+      toast.success(`Flow triggered: ${flow}`);
       logLine(`n8n ${flow}: ${JSON.stringify(data)}`);
       await fetchAudit();
     } catch (e) {
       console.error(e);
+      toast.error(`Trigger failed: ${e?.response?.data?.detail || e?.message || "Unknown error"}`);
       logLine(`n8n ${flow} failed`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const postTriggerUrl = async (url, flowNameForUi) => {
+    try {
+      setLoading(true);
+      const { data } = await api.post(`/n8n/trigger-url`, { url });
+      toast.success(`Flow triggered: ${flowNameForUi}`);
+      logLine(`n8n-absolute ${flowNameForUi}: ${JSON.stringify(data)}`);
+      await fetchAudit();
+    } catch (e) {
+      console.error("[Blaxing Error - Quick Flow]", e?.response?.data || e);
+      toast.error(`Trigger failed: ${e?.response?.data?.detail || e?.message || "Unknown error"}`);
+      logLine(`n8n-absolute ${flowNameForUi} failed`);
     } finally {
       setLoading(false);
     }
@@ -147,10 +167,12 @@ export default function App() {
     try {
       setLoading(true);
       const { data } = await api.post(`/n8n/trigger-url`, { url: absUrl, payload });
+      toast.success("Flow triggered via absolute URL");
       logLine(`n8n-absolute: ${JSON.stringify(data)}`);
       await fetchAudit();
     } catch (e) {
       console.error(e);
+      toast.error(`Trigger failed: ${e?.response?.data?.detail || e?.message || "Unknown error"}`);
       logLine(`n8n-absolute failed`);
     } finally {
       setLoading(false);
@@ -167,6 +189,7 @@ export default function App() {
 
   return (
     <div className="App">
+      <Toaster position="top-right" richColors />
       <header className="App-header">
         <a className="App-link" href="https://emergent.sh" target="_blank" rel="noopener noreferrer">
           <img alt="Emergent" src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
@@ -220,9 +243,18 @@ export default function App() {
 
         <Section title="n8n Absolute Webhook URL">
           <div className="n8n-form">
-            <input data-testid="n8n-abs-url-input" placeholder="https://host:5678/webhook-test/<token>" value={absUrl} onChange={(e) => setAbsUrl(e.target.value)} />
+            <input data-testid="n8n-abs-url-input" placeholder="https://host:5678/webhook-test/&lt;token&gt;" value={absUrl} onChange={(e) => setAbsUrl(e.target.value)} />
             <textarea data-testid="n8n-abs-payload-input" rows={6} value={absPayload} onChange={(e) => setAbsPayload(e.target.value)} />
             <button data-testid="n8n-abs-trigger-btn" disabled={loading} onClick={triggerAbsolute}>Trigger Absolute</button>
+          </div>
+        </Section>
+
+        <Section title="Quick n8n Flows">
+          <div className="quick-actions">
+            <button data-testid="n8n-trade-btn" disabled={loading} onClick={() => postTriggerUrl(`${N8N_ABS_BASE}/trade_alerts_flow`, 'trade_alerts_flow')}>⚡ Trade Alerts Flow</button>
+            <button data-testid="n8n-crystal-btn" disabled={loading} onClick={() => postTriggerUrl(`${N8N_ABS_BASE}/crystal_autopost`, 'crystal_autopost')}>💅 Crystal AutoPost</button>
+            <button data-testid="n8n-legal-btn" disabled={loading} onClick={() => postTriggerUrl(`${N8N_ABS_BASE}/legal_guard`, 'legal_guard')}>⚖️ Legal Guard</button>
+            <button data-testid="n8n-restart-btn" disabled={loading} onClick={() => postTriggerUrl(`${N8N_ABS_BASE}/auto_restart`, 'auto_restart')}>🔁 Auto Restart</button>
           </div>
         </Section>
 
