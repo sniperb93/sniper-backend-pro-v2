@@ -113,6 +113,18 @@ const WorkflowsDrawer = ({ open, setOpen, api, toast }) => {
   const [cfg, setCfg] = useState({ activation_flow: "", deactivation_flow: "", status_change_flow: "" });
   const [loading, setLoading] = useState(false);
 
+
+  // Centralized error handler for this drawer
+  const handleError = (action, e) => {
+    // eslint-disable-next-line no-console
+    console.error(`[Blaxing Error - ${action}]`, e?.response?.data || e);
+    toast({
+      title: `${action} failed`,
+      description: e?.response?.data?.detail || e?.message || "Unknown error",
+      variant: "destructive",
+    });
+  };
+
   const load = async () => {
     setLoading(true);
     try {
