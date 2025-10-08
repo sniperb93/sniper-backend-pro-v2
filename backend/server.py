@@ -243,8 +243,8 @@ async def daily_report():
     # Try getting agents list
     agents_data: List[Dict[str, Any]] = []
     try:
-        l = await upstream_request('GET', '/agents/list')
-        agents_list = l['data'] if isinstance(l['data'], list) else l['data'].get('agents', [])
+        list_resp = await upstream_request('GET', '/agents/list')
+        agents_list = list_resp['data'] if isinstance(list_resp['data'], list) else list_resp['data'].get('agents', [])
         # Normalize best-effort
         for a in agents_list:
             if isinstance(a, dict):
