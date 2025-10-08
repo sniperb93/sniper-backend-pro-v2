@@ -269,7 +269,7 @@ const Dashboard = () => {
       const data = await api.list();
       setAgents(data);
     } catch (e) {
-      toast({ title: "Failed to load agents", description: e.message, variant: "destructive" });
+      handleDashError("load agents", e);
     } finally {
       setLoading(false);
     }
