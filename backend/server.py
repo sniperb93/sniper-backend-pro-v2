@@ -47,6 +47,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Inject Universal Key middleware (simulated). Prefer platform injection if available.
+@app.middleware("http")
+async def inject_universal_key(request: Request, call_next):
+    # If platform injected universal key exists, do nothing. Otherwise, fall back to EMERGENT_LLM_KEY
+    if not os.environ.get('EMERGENT_UNIVERSAL_KEY') and os.environ.get('EMERGENT_LLM_KEY'):
+        os.environ['EMERGENT_UNIVERSAL_KEY'] = os.environ['EMERGENT_LLM_KEY']
+    response = await call_next(request)
+    return response
+
 # Models
 class StatusCheck(BaseModel):
     model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
@@ -139,11 +148,13 @@ async def upstream_request(method: str, path: str, json: Optional[Dict[str, Any]
         raise HTTPException(status_code=502, detail="Failed to reach agent-manager")
 
 async def emergent_llm_infer(agent_name: str, prompt: str) -> str:
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(status_code=400, detail="Emergent LLM not configured: missing EMERGENT_LLM_KEY")
+    # Prefer platform injected universal key, then fallback to EMERGENT_LLM_KEY
+    uni_key = os.environ.get('EMERGENT_UNIVERSAL_KEY') or EMERGENT_LLM_KEY
+    if not uni_key:
+        return "⚠️ Universal Key non détectée. Vérifie ton Integration Manager."
     url = f"{EMERGENT_LLM_URL.rstrip('/')}/infer"
     headers = {
-        'Authorization': f'Bearer {EMERGENT_LLM_KEY}',
+        'Authorization': f'Bearer {uni_key}',
         'Content-Type': 'application/json'
     }
     payload = {
@@ -153,16 +164,16 @@ async def emergent_llm_infer(agent_name: str, prompt: str) -> str:
     }
     try:
         resp = await httpx_client.post(url, headers=headers, json=payload)
-        data: Dict[str, Any]
         try:
             data = resp.json()
         except Exception:
             data = {'text': resp.text}
         if resp.status_code >= 400:
-            raise HTTPException(status_code=resp.status_code, detail=data)
+            # Return message instead of raising to keep UX friendly
+            return data.get('detail') or data.get('error') or data.get('text') or "Aucune réponse reçue du moteur Emergent."
         return data.get('response') or data.get('text') or "Aucune réponse reçue du moteur Emergent."
     except httpx.RequestError:
-        raise HTTPException(status_code=502, detail="Failed to reach Emergent LLM service")
+        return "Aucune réponse reçue du moteur Emergent."
 
 # --- Existing sample endpoints ---
 @api_router.get("/")
@@ -195,7 +206,7 @@ async def get_config():
         'dryRun': EMERGENT_DRY_RUN,
         'agentManagerBase': AGENT_MANAGER_BASE_URL,
         'n8nWebhookBase': N8N_WEBHOOK_BASE if N8N_WEBHOOK_BASE else None,
-        'emergentLlmConfigured': bool(EMERGENT_LLM_KEY)
+        'emergentLlmConfigured': bool(os.environ.get('EMERGENT_UNIVERSAL_KEY') or EMERGENT_LLM_KEY)
     }
 
 # --- Agent manager proxy endpoints ---
