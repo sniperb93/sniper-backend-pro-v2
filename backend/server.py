@@ -349,8 +349,22 @@ async def builder_list_agents():
 
 @api_router.post("/agent-builder/ask")
 async def builder_ask_agent(body: AgentAskRequest):
+    # Allow lookup by our UUID id, or by name as fallback, and also by 'id' field
     agent = await db.agents_builder.find_one({'_id': body.agent_id})
     if not agent:
+        agent = await db.agents_builder.find_one({'id': body.agent_id})
+    if not agent:
+        agent = await db.agents_builder.find_one({'name': body.agent_id})
+    if not agent:
+        # Audit failure (no secrets)
+        await db.audit_logs.insert_one({
+            '_id': str(uuid.uuid4()),
+            'id': str(uuid.uuid4()),
+            'event': 'builder_agent_ask_failed',
+            'reason': 'agent_not_found',
+            'provided_agent_id': body.agent_id,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
         raise HTTPException(status_code=404, detail="Agent introuvable")
     # Call Emergent LLM
     response_text = await emergent_llm_infer(agent_name=agent.get('name', body.agent_id), prompt=body.prompt)
