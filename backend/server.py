@@ -236,6 +236,20 @@ async def list_agents(x_blaxing_source: Optional[str] = Header(default="mock"), 
             return items
         except HTTPException:
             # Fallback to mock list
+
+@api_router.get("/health")
+async def health(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
+    src = (x_blaxing_source or "mock").lower()
+    if src in ("prod", "staging"):
+        try:
+            data = forward_blaxing("GET", "/health", x_api_key, src, x_blaxing_base)
+            # upstream may return e.g. {"status":"ok"}
+            return {"status": data.get("status", "ok"), "source": src}
+        except HTTPException as e:
+            # Report upstream error but keep service live
+            raise e
+    return {"status": "ok", "source": "mock"}
+
             pass
     await ensure_seed_agents()
     items = await db.agents.find({}, {"_id": 0}).to_list(length=None)
