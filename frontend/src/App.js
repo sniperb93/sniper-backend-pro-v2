@@ -270,7 +270,7 @@ const Dashboard = () => {
       toast({ title: `Deactivated ${id}` });
       setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: "sleep", uptime: 0 } : a)));
     } catch (e) {
-      toast({ title: `Deactivate failed", description: String(e), variant: "destructive" });
+      toast({ title: "Deactivate failed", description: String(e), variant: "destructive" });
     }
   };
 
