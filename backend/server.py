@@ -1,6 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMIDDLEWARE as CORSMiddleware
+from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import httpx
 import yaml
+import json
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -29,6 +30,9 @@ N8N_WEBHOOK_AUTH = os.environ.get('N8N_WEBHOOK_AUTH', '')
 # Emergent LLM integration
 EMERGENT_LLM_URL = os.environ.get('EMERGENT_LLM_URL', 'https://api.emergent-llm.ai')
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
+
+# Paths for default agents file (Flask-style compatibility)
+DEFAULT_AGENTS_FILE = (ROOT_DIR.parent / 'emergent' / 'agents' / 'data' / 'agents.json').resolve()
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -50,7 +54,6 @@ logger = logging.getLogger(__name__)
 # Inject Universal Key middleware (simulated). Prefer platform injection if available.
 @app.middleware("http")
 async def inject_universal_key(request: Request, call_next):
-    # If platform injected universal key exists, do nothing. Otherwise, fall back to EMERGENT_LLM_KEY
     if not os.environ.get('EMERGENT_UNIVERSAL_KEY') and os.environ.get('EMERGENT_LLM_KEY'):
         os.environ['EMERGENT_UNIVERSAL_KEY'] = os.environ['EMERGENT_LLM_KEY']
     response = await call_next(request)
@@ -58,7 +61,7 @@ async def inject_universal_key(request: Request, call_next):
 
 # Models
 class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
+    model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     client_name: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -86,7 +89,6 @@ class N8nTriggerUrlPayload(BaseModel):
     url: str
     payload: Dict[str, Any] = Field(default_factory=dict)
 
-# --- Builder models (FastAPI version of your Flask blueprint) ---
 class BuilderAgentCreate(BaseModel):
     name: str
     role: str
@@ -114,7 +116,6 @@ class AgentAskRequest(BaseModel):
 async def log_audit(entry: AuditEntry) -> None:
     try:
         doc = entry.model_dump()
-        # enforce our own _id as UUID string to avoid ObjectId
         doc['_id'] = doc['id']
         doc['timestamp'] = doc['timestamp'].isoformat()
         await db.audit_logs.insert_one(doc)
@@ -124,16 +125,10 @@ async def log_audit(entry: AuditEntry) -> None:
 async def upstream_request(method: str, path: str, json: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not BLA_API_KEY:
         raise HTTPException(status_code=400, detail="BLA_API_KEY not configured")
-
     url = f"{AGENT_MANAGER_BASE_URL}{path}"
-    headers = {
-        'X-API-KEY': BLA_API_KEY,
-        'Content-Type': 'application/json'
-    }
+    headers = {'X-API-KEY': BLA_API_KEY, 'Content-Type': 'application/json'}
     try:
         resp = await httpx_client.request(method, url, headers=headers, json=json)
-        # Prepare content
-        content: Any
         try:
             content = resp.json()
         except Exception:
@@ -148,20 +143,12 @@ async def upstream_request(method: str, path: str, json: Optional[Dict[str, Any]
         raise HTTPException(status_code=502, detail="Failed to reach agent-manager")
 
 async def emergent_llm_infer(agent_name: str, prompt: str) -> str:
-    # Prefer platform injected universal key, then fallback to EMERGENT_LLM_KEY
     uni_key = os.environ.get('EMERGENT_UNIVERSAL_KEY') or EMERGENT_LLM_KEY
     if not uni_key:
         return "⚠️ Universal Key non détectée. Vérifie ton Integration Manager."
     url = f"{EMERGENT_LLM_URL.rstrip('/')}/infer"
-    headers = {
-        'Authorization': f'Bearer {uni_key}',
-        'Content-Type': 'application/json'
-    }
-    payload = {
-        'model': 'emergent-llm-v1',
-        'agent': agent_name,
-        'prompt': prompt
-    }
+    headers = {'Authorization': f'Bearer {uni_key}', 'Content-Type': 'application/json'}
+    payload = {'model': 'emergent-llm-v1', 'agent': agent_name, 'prompt': prompt}
     try:
         resp = await httpx_client.post(url, headers=headers, json=payload)
         try:
@@ -169,11 +156,21 @@ async def emergent_llm_infer(agent_name: str, prompt: str) -> str:
         except Exception:
             data = {'text': resp.text}
         if resp.status_code >= 400:
-            # Return message instead of raising to keep UX friendly
             return data.get('detail') or data.get('error') or data.get('text') or "Aucune réponse reçue du moteur Emergent."
         return data.get('response') or data.get('text') or "Aucune réponse reçue du moteur Emergent."
     except httpx.RequestError:
         return "Aucune réponse reçue du moteur Emergent."
+
+# File helpers for defaults
+def read_default_agents_file() -> List[Dict[str, Any]]:
+    try:
+        if DEFAULT_AGENTS_FILE.exists():
+            with open(DEFAULT_AGENTS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"Failed reading default agents file: {e}")
+    return []
 
 # --- Existing sample endpoints ---
 @api_router.get("/")
@@ -182,12 +179,9 @@ async def root():
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    doc = status_obj.model_dump()
-    doc['_id'] = doc['id']
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    _ = await db.status_checks.insert_one(doc)
+    status_obj = StatusCheck(**input.model_dump())
+    doc = status_obj.model_dump(); doc['_id'] = doc['id']; doc['timestamp'] = doc['timestamp'].isoformat()
+    await db.status_checks.insert_one(doc)
     return status_obj
 
 @api_router.get("/status", response_model=List[StatusCheck])
@@ -206,7 +200,9 @@ async def get_config():
         'dryRun': EMERGENT_DRY_RUN,
         'agentManagerBase': AGENT_MANAGER_BASE_URL,
         'n8nWebhookBase': N8N_WEBHOOK_BASE if N8N_WEBHOOK_BASE else None,
-        'emergentLlmConfigured': bool(os.environ.get('EMERGENT_UNIVERSAL_KEY') or EMERGENT_LLM_KEY)
+        'emergentLlmConfigured': bool(os.environ.get('EMERGENT_UNIVERSAL_KEY') or EMERGENT_LLM_KEY),
+        'defaultsFileExists': DEFAULT_AGENTS_FILE.exists(),
+        'defaultsFile': str(DEFAULT_AGENTS_FILE)
     }
 
 # --- Agent manager proxy endpoints ---
@@ -293,7 +289,6 @@ async def n8n_trigger(flow: str, payload: Dict[str, Any]):
 
 @api_router.post("/n8n/trigger-url")
 async def n8n_trigger_url(body: N8nTriggerUrlPayload):
-    # allow absolute test webhook URL (e.g., http://31.97.193.13:5678/webhook-test/<token>)
     url = body.url
     if not (url.startswith('http://') or url.startswith('https://')):
         raise HTTPException(status_code=400, detail="Invalid URL")
@@ -320,33 +315,44 @@ async def n8n_trigger_url(body: N8nTriggerUrlPayload):
 # --- Agent Builder (FastAPI) ---
 @api_router.post("/agent-builder/create", response_model=BuilderAgentOut)
 async def builder_create_agent(body: BuilderAgentCreate):
-    # Create document with UUID id and created_at
     doc = {
         'id': str(uuid.uuid4()),
         'name': body.name,
         'role': body.role,
         'personality': body.personality,
         'mission': body.mission,
-        'api_key': body.api_key,  # stored but never returned by out model
+        'api_key': body.api_key,
         'active': body.active,
         'use_openai': body.use_openai,
         'created_at': datetime.now(timezone.utc).isoformat(),
     }
-    to_store = dict(doc)
-    to_store['_id'] = doc['id']
+    to_store = dict(doc); to_store['_id'] = doc['id']
     try:
         await db.agents_builder.insert_one(to_store)
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to create agent")
-    # Audit (no secrets)
     await log_audit(AuditEntry(action='builder_create_agent', agent_id=doc['id'], method='POST', path='/agent-builder/create', success=True, upstream_status=201))
-    # Convert created_at to datetime for the response model
     return BuilderAgentOut(**{**doc, 'created_at': datetime.fromisoformat(doc['created_at'])})
 
 @api_router.get("/agent-builder/list", response_model=List[BuilderAgentOut])
 async def builder_list_agents():
     items = await db.agents_builder.find({}, {"_id": 0, "api_key": 0}).sort("created_at", -1).to_list(1000)
-    # Ensure created_at is datetime
+    if not items:
+        # fallback display from defaults file when DB empty (no persistence)
+        defaults = read_default_agents_file()
+        provisional = []
+        for a in defaults:
+            provisional.append(BuilderAgentOut(
+                id=str(uuid.uuid4()),
+                name=a.get('name',''),
+                role=a.get('role',''),
+                personality=a.get('personality',''),
+                mission=a.get('mission',''),
+                active=True,
+                use_openai=bool(a.get('use_openai')),
+                created_at=datetime.now(timezone.utc)
+            ))
+        return provisional
     normalized: List[BuilderAgentOut] = []
     for it in items:
         ca = it.get('created_at')
@@ -360,49 +366,56 @@ async def builder_list_agents():
 
 @api_router.post("/agent-builder/ask")
 async def builder_ask_agent(body: AgentAskRequest):
-    # Allow lookup by our UUID id, or by name as fallback, and also by 'id' field
     agent = await db.agents_builder.find_one({'_id': body.agent_id})
     if not agent:
         agent = await db.agents_builder.find_one({'id': body.agent_id})
     if not agent:
         agent = await db.agents_builder.find_one({'name': body.agent_id})
     if not agent:
-        # Audit failure (no secrets)
-        await db.audit_logs.insert_one({
-            '_id': str(uuid.uuid4()),
-            'id': str(uuid.uuid4()),
-            'event': 'builder_agent_ask_failed',
-            'reason': 'agent_not_found',
-            'provided_agent_id': body.agent_id,
-            'timestamp': datetime.now(timezone.utc).isoformat()
-        })
+        await db.audit_logs.insert_one({'_id': str(uuid.uuid4()), 'id': str(uuid.uuid4()), 'event': 'builder_agent_ask_failed', 'reason': 'agent_not_found', 'provided_agent_id': body.agent_id, 'timestamp': datetime.now(timezone.utc).isoformat()})
         raise HTTPException(status_code=404, detail="Agent introuvable")
-    # Call Emergent LLM
     response_text = await emergent_llm_infer(agent_name=agent.get('name', body.agent_id), prompt=body.prompt)
-    # Log truncated prompt/response
-    audit_payload = {
-        'id': str(uuid.uuid4()),
-        'event': 'builder_agent_ask',
-        'agent': agent.get('name'),
-        'prompt': body.prompt[:1000],
-        'response': (response_text or '')[:4000],
-        'timestamp': datetime.now(timezone.utc).isoformat()
-    }
+    audit_payload = {'id': str(uuid.uuid4()), 'event': 'builder_agent_ask', 'agent': agent.get('name'), 'prompt': body.prompt[:1000], 'response': (response_text or '')[:4000], 'timestamp': datetime.now(timezone.utc).isoformat()}
     audit_payload['_id'] = audit_payload['id']
     await db.audit_logs.insert_one(audit_payload)
-    return {
-        'agent': agent.get('name'),
-        'response': response_text,
-        'timestamp': audit_payload['timestamp']
-    }
+    return {'agent': agent.get('name'), 'response': response_text, 'timestamp': audit_payload['timestamp']}
 
 @api_router.get("/agent-builder/history")
 async def builder_agent_history(agent_id: str):
-    # Lookup by agent name or stored agent_id if ever used
     query = {"$or": [{"agent": agent_id}, {"agent_id": agent_id}]}
     cursor = db.audit_logs.find({"event": "builder_agent_ask", **query}, {"_id": 0, "prompt": 1, "response": 1, "timestamp": 1}).sort("timestamp", -1)
     items = await cursor.to_list(length=200)
     return {"agent": agent_id, "history": items}
+
+@api_router.post("/agent-builder/import-defaults-from-file")
+async def builder_import_defaults_from_file():
+    defaults = read_default_agents_file()
+    if not defaults:
+        raise HTTPException(status_code=404, detail="Defaults file not found or empty")
+    inserted = 0
+    for a in defaults:
+        name = a.get('name')
+        if not name:
+            continue
+        exists = await db.agents_builder.find_one({'name': name})
+        if exists:
+            continue
+        doc = {
+            'id': str(uuid.uuid4()),
+            'name': name,
+            'role': a.get('role',''),
+            'personality': a.get('personality',''),
+            'mission': a.get('mission',''),
+            'api_key': None,
+            'active': True,
+            'use_openai': bool(a.get('use_openai')),
+            'created_at': datetime.now(timezone.utc).isoformat(),
+        }
+        to_store = dict(doc); to_store['_id'] = doc['id']
+        await db.agents_builder.insert_one(to_store)
+        inserted += 1
+    await log_audit(AuditEntry(action='builder_import_defaults', method='POST', path='/agent-builder/import-defaults-from-file', success=True, upstream_status=200))
+    return {'inserted': inserted}
 
 # --- Audit queries ---
 @api_router.get("/audit")
@@ -421,33 +434,20 @@ async def daily_report():
     cursor = db.audit_logs.find({"timestamp": {"$gte": start.isoformat()}}, {"_id": 0})
     items = await cursor.to_list(length=1000)
     actions = [f"{it.get('event') or it.get('action')} {it.get('agent') or it.get('agent_id')}".strip() for it in items]
-    errors = []  # audit entries don't mark success here
-    # Try getting agents list
+    errors = []
     agents_data: List[Dict[str, Any]] = []
     try:
         list_resp = await upstream_request('GET', '/agents/list')
         agents_list = list_resp['data'] if isinstance(list_resp['data'], list) else list_resp['data'].get('agents', [])
         for a in agents_list:
             if isinstance(a, dict):
-                agents_data.append({
-                    'name': a.get('name') or a.get('agent_id') or a.get('id'),
-                    'state': a.get('state') or a.get('status') or 'unknown',
-                    'uptime': a.get('uptime') or a.get('metrics', {}).get('uptime')
-                })
+                agents_data.append({'name': a.get('name') or a.get('agent_id') or a.get('id'), 'state': a.get('state') or a.get('status') or 'unknown', 'uptime': a.get('uptime') or a.get('metrics', {}).get('uptime')})
             else:
                 agents_data.append({'name': str(a), 'state': 'unknown'})
     except Exception:
         pass
-    next_steps = [
-        "connect n8n flows (trade_alerts_flow, crystal_autopost, legal_guard, auto_restart)",
-        "rotate API key in 30 days"
-    ]
-    return {
-        "actionsPerformed": actions[:10],
-        "agents": agents_data,
-        "errors": errors[:10],
-        "nextSteps": next_steps
-    }
+    next_steps = ["connect n8n flows (trade_alerts_flow, crystal_autopost, legal_guard, auto_restart)", "rotate API key in 30 days"]
+    return {"actionsPerformed": actions[:10], "agents": agents_data, "errors": errors[:10], "nextSteps": next_steps}
 
 # --- OpenAPI YAML ---
 @api_router.get("/openapi.yaml")
