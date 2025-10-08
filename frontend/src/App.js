@@ -86,7 +86,7 @@ const AgentCard = ({ agent, onActivate, onDeactivate, onCheck }) => {
             Deactivate
           </Button>
           <Button
-            data-testid={`check-status-btn-${agent.agent_id}`]
+            data-testid={`check-status-btn-${agent.agent_id}`}
             onClick={() => onCheck(agent.agent_id)}
             variant="ghost"
             className="rounded-full hover:bg-neutral-100"
