@@ -26,6 +26,9 @@ AGENT_MANAGER_BASE_URL = os.environ.get('AGENT_MANAGER_BASE_URL', 'https://blaxi
 EMERGENT_DRY_RUN = os.environ.get('EMERGENT_DRY_RUN', 'true').lower() in ['1', 'true', 'yes']
 N8N_WEBHOOK_BASE = os.environ.get('N8N_WEBHOOK_BASE', '')
 N8N_WEBHOOK_AUTH = os.environ.get('N8N_WEBHOOK_AUTH', '')
+# Emergent LLM integration
+EMERGENT_LLM_URL = os.environ.get('EMERGENT_LLM_URL', 'https://api.emergent-llm.ai')
+EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -94,6 +97,10 @@ class BuilderAgentOut(BaseModel):
     use_openai: bool
     created_at: datetime
 
+class AgentAskRequest(BaseModel):
+    agent_id: str
+    prompt: str
+
 # Helpers
 async def log_audit(entry: AuditEntry) -> None:
     try:
@@ -131,6 +138,32 @@ async def upstream_request(method: str, path: str, json: Optional[Dict[str, Any]
         logger.error(f"Upstream request error to {url}: {e}")
         raise HTTPException(status_code=502, detail="Failed to reach agent-manager")
 
+async def emergent_llm_infer(agent_name: str, prompt: str) -> str:
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=400, detail="Emergent LLM not configured: missing EMERGENT_LLM_KEY")
+    url = f"{EMERGENT_LLM_URL.rstrip('/')}/infer"
+    headers = {
+        'Authorization': f'Bearer {EMERGENT_LLM_KEY}',
+        'Content-Type': 'application/json'
+    }
+    payload = {
+        'model': 'emergent-llm-v1',
+        'agent': agent_name,
+        'prompt': prompt
+    }
+    try:
+        resp = await httpx_client.post(url, headers=headers, json=payload)
+        data: Dict[str, Any]
+        try:
+            data = resp.json()
+        except Exception:
+            data = {'text': resp.text}
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=data)
+        return data.get('response') or data.get('text') or "Aucune réponse reçue du moteur Emergent."
+    except httpx.RequestError:
+        raise HTTPException(status_code=502, detail="Failed to reach Emergent LLM service")
+
 # --- Existing sample endpoints ---
 @api_router.get("/")
 async def root():
@@ -161,7 +194,8 @@ async def get_config():
         'hasKey': bool(BLA_API_KEY),
         'dryRun': EMERGENT_DRY_RUN,
         'agentManagerBase': AGENT_MANAGER_BASE_URL,
-        'n8nWebhookBase': N8N_WEBHOOK_BASE if N8N_WEBHOOK_BASE else None
+        'n8nWebhookBase': N8N_WEBHOOK_BASE if N8N_WEBHOOK_BASE else None,
+        'emergentLlmConfigured': bool(EMERGENT_LLM_KEY)
     }
 
 # --- Agent manager proxy endpoints ---
@@ -313,6 +347,30 @@ async def builder_list_agents():
         normalized.append(BuilderAgentOut(**it))
     return normalized
 
+@api_router.post("/agent-builder/ask")
+async def builder_ask_agent(body: AgentAskRequest):
+    agent = await db.agents_builder.find_one({'_id': body.agent_id})
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent introuvable")
+    # Call Emergent LLM
+    response_text = await emergent_llm_infer(agent_name=agent.get('name', body.agent_id), prompt=body.prompt)
+    # Log truncated prompt/response
+    audit_payload = {
+        'id': str(uuid.uuid4()),
+        'event': 'builder_agent_ask',
+        'agent': agent.get('name'),
+        'prompt': body.prompt[:1000],
+        'response': (response_text or '')[:4000],
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    }
+    audit_payload['_id'] = audit_payload['id']
+    await db.audit_logs.insert_one(audit_payload)
+    return {
+        'agent': agent.get('name'),
+        'response': response_text,
+        'timestamp': audit_payload['timestamp']
+    }
+
 # --- Audit queries ---
 @api_router.get("/audit")
 async def get_audit(limit: int = 50, skip: int = 0):
@@ -329,14 +387,13 @@ async def daily_report():
     start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     cursor = db.audit_logs.find({"timestamp": {"$gte": start.isoformat()}}, {"_id": 0})
     items = await cursor.to_list(length=1000)
-    actions = [f"{it.get('action')} {it.get('agent_id')}".strip() for it in items]
-    errors = [it for it in items if not it.get('success', False)]
+    actions = [f"{it.get('event') or it.get('action')} {it.get('agent') or it.get('agent_id')}".strip() for it in items]
+    errors = []  # audit entries don't mark success here
     # Try getting agents list
     agents_data: List[Dict[str, Any]] = []
     try:
         list_resp = await upstream_request('GET', '/agents/list')
         agents_list = list_resp['data'] if isinstance(list_resp['data'], list) else list_resp['data'].get('agents', [])
-        # Normalize best-effort
         for a in agents_list:
             if isinstance(a, dict):
                 agents_data.append({
@@ -376,7 +433,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers:["*"],
 )
 
 @app.on_event("shutdown")
