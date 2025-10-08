@@ -1,6 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.cors import CORSMIDDLEWARE as CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -395,6 +395,14 @@ async def builder_ask_agent(body: AgentAskRequest):
         'response': response_text,
         'timestamp': audit_payload['timestamp']
     }
+
+@api_router.get("/agent-builder/history")
+async def builder_agent_history(agent_id: str):
+    # Lookup by agent name or stored agent_id if ever used
+    query = {"$or": [{"agent": agent_id}, {"agent_id": agent_id}]}
+    cursor = db.audit_logs.find({"event": "builder_agent_ask", **query}, {"_id": 0, "prompt": 1, "response": 1, "timestamp": 1}).sort("timestamp", -1)
+    items = await cursor.to_list(length=200)
+    return {"agent": agent_id, "history": items}
 
 # --- Audit queries ---
 @api_router.get("/audit")

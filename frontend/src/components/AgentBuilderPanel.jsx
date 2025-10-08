@@ -12,6 +12,8 @@ export default function AgentBuilderPanel() {
   const [response, setResponse] = useState("");
   const [selectedAgent, setSelectedAgent] = useState("");
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || import.meta.env.REACT_APP_BACKEND_URL;
   const API = `${BACKEND_URL}/api`;
@@ -65,10 +67,23 @@ export default function AgentBuilderPanel() {
       });
       const data = await res.json();
       setResponse(data.response || "Aucune réponse.");
+      await fetchHistory(selectedAgent);
     } catch (err) {
       setResponse("Erreur lors de la requête.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchHistory = async (agentName) => {
+    setShowHistory(true);
+    setHistory([]);
+    try {
+      const res = await fetch(`${API}/agent-builder/history?agent_id=${encodeURIComponent(agentName)}`);
+      const data = await res.json();
+      setHistory(data.history || []);
+    } catch (err) {
+      console.error("Erreur de récupération de l'historique :", err);
     }
   };
 
@@ -133,7 +148,7 @@ export default function AgentBuilderPanel() {
                 key={agent.id}
                 className="p-3 rounded-lg bg-gray-700 hover:bg-gray-600 cursor-pointer"
                 data-testid={`agent-list-item-${agent.id}`}
-                onClick={() => setSelectedAgent(agent.name)}
+                onClick={() => { setSelectedAgent(agent.name); fetchHistory(agent.name); }}
               >
                 <strong>{agent.name}</strong> — {agent.role}
                 <p className="text-sm text-gray-400">{agent.mission}</p>
@@ -182,6 +197,31 @@ export default function AgentBuilderPanel() {
           </div>
         )}
       </div>
+
+      {showHistory && (
+        <div className="bg-gray-800 p-4 rounded-xl mt-6" data-testid="agent-history-container">
+          <h3 className="text-lg font-semibold mb-2">Historique des requêtes</h3>
+          {history.length === 0 ? (
+            <p className="text-gray-400" data-testid="agent-history-empty">Aucun historique trouvé pour cet agent.</p>
+          ) : (
+            <ul className="space-y-3 max-h-80 overflow-y-auto">
+              {history.map((h, index) => (
+                <li key={index} className="bg-gray-700 p-3 rounded-lg" data-testid={`agent-history-item-${index}`}>
+                  <p className="text-sm text-gray-300">
+                    <strong>🕒 {new Date(h.timestamp).toLocaleString()}</strong>
+                  </p>
+                  <p className="mt-1 text-gray-200">
+                    <strong>Q:</strong> {h.prompt}
+                  </p>
+                  <p className="mt-1 text-green-400">
+                    <strong>R:</strong> {h.response}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
