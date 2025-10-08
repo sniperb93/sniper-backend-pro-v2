@@ -25,6 +25,8 @@ const useAgentsApi = (headers) => {
     activate: (id) => api.post(`/agents/${id}/activate`).then((r) => r.data),
     deactivate: (id) => api.post(`/agents/${id}/deactivate`).then((r) => r.data),
     status: (id) => api.get(`/agents/${id}/status`).then((r) => r.data),
+    activateAll: () => api.post(`/agents/activate-all`).then((r) => r.data),
+    deactivateAll: () => api.post(`/agents/deactivate-all`).then((r) => r.data),
   };
 };
 
@@ -99,7 +101,7 @@ const AgentCard = ({ agent, onActivate, onDeactivate, onCheck }) => {
   );
 };
 
-const HeaderControls = ({ mode, setMode, apiKey, setApiKey, onApply, stagingBase, setStagingBase }) => {
+const HeaderControls = ({ mode, setMode, apiKey, setApiKey, onApply, stagingBase, setStagingBase, onActivateAll, onDeactivateAll }) => {
   return (
     <div className="flex items-center gap-3" data-testid="header-controls">
       <div className="w-48">
@@ -133,6 +135,10 @@ const HeaderControls = ({ mode, setMode, apiKey, setApiKey, onApply, stagingBase
         className="w-64"
       />
       <Button data-testid="apply-headers-btn" className="rounded-full bg-stone-900 text-white hover:bg-stone-800" onClick={onApply}>Apply</Button>
+      <div className="hidden md:flex gap-2 pl-2">
+        <Button data-testid="activate-all-btn" className="rounded-full bg-emerald-600 text-white hover:bg-emerald-700" onClick={onActivateAll}>Activate All</Button>
+        <Button data-testid="deactivate-all-btn" variant="outline" className="rounded-full border-neutral-300 hover:bg-neutral-100" onClick={onDeactivateAll}>Deactivate All</Button>
+      </div>
     </div>
   );
 };
@@ -203,6 +209,34 @@ const Dashboard = () => {
     }
   };
 
+  const handleActivateAll = async () => {
+    try {
+      const res = await api.activateAll();
+      if (res?.dry_run) {
+        toast({ title: "Activate-All (dry run)", description: "No changes applied on upstream" });
+      } else {
+        toast({ title: "All agents activated" });
+        fetchAgents();
+      }
+    } catch (e) {
+      toast({ title: "Activate-All failed", description: String(e), variant: "destructive" });
+    }
+  };
+
+  const handleDeactivateAll = async () => {
+    try {
+      const res = await api.deactivateAll();
+      if (res?.dry_run) {
+        toast({ title: "Deactivate-All (dry run)", description: "No changes applied on upstream" });
+      } else {
+        toast({ title: "All agents deactivated" });
+        fetchAgents();
+      }
+    } catch (e) {
+      toast({ title: "Deactivate-All failed", description: String(e), variant: "destructive" });
+    }
+  };
+
   return (
     <div data-testid="agents-dashboard" className="min-h-screen bg-gradient-to-b from-neutral-50 to-stone-50">
       <div className="mx-auto max-w-6xl px-6 py-10">
@@ -211,7 +245,7 @@ const Dashboard = () => {
             <h1 className="text-4xl font-semibold tracking-tight" data-testid="page-title">Blaxing Agents</h1>
             <p className="text-neutral-600 mt-2" data-testid="page-subtitle">Manage and supervise your AI agents.</p>
           </div>
-          <HeaderControls mode={mode} setMode={setMode} apiKey={apiKey} setApiKey={setApiKey} onApply={applyHeaders} stagingBase={stagingBase} setStagingBase={setStagingBase} />
+          <HeaderControls mode={mode} setMode={setMode} apiKey={apiKey} setApiKey={setApiKey} onApply={applyHeaders} stagingBase={stagingBase} setStagingBase={setStagingBase} onActivateAll={handleActivateAll} onDeactivateAll={handleDeactivateAll} />
         </div>
 
         {loading ? (

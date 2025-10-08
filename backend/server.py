@@ -24,6 +24,7 @@ db = client[os.environ['DB_NAME']]
 BLAXING_API_BASE = os.environ.get("BLAXING_API_BASE", "https://blaxing.fr/api")
 BLAXING_STAGING_API_BASE = os.environ.get("BLAXING_STAGING_API_BASE", "https://staging.blaxing.fr/api")
 REQ_TIMEOUT = 10
+EMERGENT_DRY_RUN = os.environ.get("EMERGENT_DRY_RUN", "true").lower() == "true"
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -237,8 +238,7 @@ async def list_agents(x_blaxing_source: Optional[str] = Header(default="mock"), 
         except HTTPException:
             # Fallback to mock list
             pass
-    
-    # Mock fallback: return seeded agents
+    # Mock fallback
     await ensure_seed_agents()
     items = await db.agents.find({}, {"_id": 0}).to_list(length=None)
     result: List[Agent] = []
@@ -253,13 +253,8 @@ async def list_agents(x_blaxing_source: Optional[str] = Header(default="mock"), 
 async def health(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
     src = (x_blaxing_source or "mock").lower()
     if src in ("prod", "staging"):
-        try:
-            data = forward_blaxing("GET", "/health", x_api_key, src, x_blaxing_base)
-            # upstream may return e.g. {"status":"ok"}
-            return {"status": data.get("status", "ok"), "source": src}
-        except HTTPException as e:
-            # Report upstream error but keep service live
-            raise e
+        data = forward_blaxing("GET", "/health", x_api_key, src, x_blaxing_base)
+        return {"status": data.get("status", "ok"), "source": src}
     return {"status": "ok", "source": "mock"}
 
 
@@ -267,6 +262,19 @@ async def health(x_blaxing_source: Optional[str] = Header(default="mock"), x_api
 async def register_agent(payload: AgentCreate, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
     src = (x_blaxing_source or "mock").lower()
     if src in ("prod", "staging"):
+        if EMERGENT_DRY_RUN:
+            return parse_agent({
+                "agent_id": payload.agent_id,
+                "name": payload.name or payload.agent_id.capitalize(),
+                "image": payload.image,
+                "env": payload.env or {},
+                "state": "sleep",
+                "created_at": now_iso(),
+                "updated_at": now_iso(),
+                "activated_at": None,
+                "last_heartbeat": None,
+                "uptime": 0,
+            })
         data = forward_blaxing("POST", "/agents/register", x_api_key, src, x_blaxing_base, json=payload.model_dump())
         doc = {
             "agent_id": data.get("agent_id") or payload.agent_id,
@@ -306,10 +314,42 @@ async def register_agent(payload: AgentCreate, x_blaxing_source: Optional[str] =
     return parse_agent(doc)
 
 
+@api_router.post("/agents/activate-all")
+async def activate_all(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
+    src = (x_blaxing_source or "mock").lower()
+    if src in ("prod", "staging"):
+        if EMERGENT_DRY_RUN:
+            return {"ok": True, "dry_run": True, "action": "activate-all"}
+        _ = forward_blaxing("POST", "/agents/activate-all", x_api_key, src, x_blaxing_base)
+        return {"ok": True, "action": "activate-all"}
+    # Mock: set all to active
+    await ensure_seed_agents()
+    now = now_iso()
+    res = await db.agents.update_many({}, {"$set": {"state": "active", "activated_at": now, "updated_at": now}})
+    return {"ok": True, "updated": res.modified_count, "state": "active"}
+
+
+@api_router.post("/agents/deactivate-all")
+async def deactivate_all(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
+    src = (x_blaxing_source or "mock").lower()
+    if src in ("prod", "staging"):
+        if EMERGENT_DRY_RUN:
+            return {"ok": True, "dry_run": True, "action": "deactivate-all"}
+        _ = forward_blaxing("POST", "/agents/deactivate-all", x_api_key, src, x_blaxing_base)
+        return {"ok": True, "action": "deactivate-all"}
+    # Mock: set all to sleep
+    await ensure_seed_agents()
+    now = now_iso()
+    res = await db.agents.update_many({}, {"$set": {"state": "sleep", "updated_at": now}})
+    return {"ok": True, "updated": res.modified_count, "state": "sleep"}
+
+
 @api_router.post("/agents/{agent_id}/activate")
 async def activate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
     src = (x_blaxing_source or "mock").lower()
     if src in ("prod", "staging"):
+        if EMERGENT_DRY_RUN:
+            return {"ok": True, "dry_run": True, "agent_id": agent_id, "state": "active"}
         _ = forward_blaxing("POST", f"/agents/{agent_id}/activate", x_api_key, src, x_blaxing_base)
         return {"ok": True, "agent_id": agent_id, "state": "active"}
 
@@ -328,6 +368,8 @@ async def activate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header
 async def deactivate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
     src = (x_blaxing_source or "mock").lower()
     if src in ("prod", "staging"):
+        if EMERGENT_DRY_RUN:
+            return {"ok": True, "dry_run": True, "agent_id": agent_id, "state": "sleep"}
         _ = forward_blaxing("POST", f"/agents/{agent_id}/deactivate", x_api_key, src, x_blaxing_base)
         return {"ok": True, "agent_id": agent_id, "state": "sleep"}
 
