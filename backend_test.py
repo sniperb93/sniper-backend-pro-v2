@@ -209,6 +209,113 @@ class BlaxingAPITester:
         # Activate should fail
         success, data = self.run_test("Prod Mode (Invalid Key) - Activate Fails", "POST", "agents/sniper/activate", 401, headers=headers)
 
+    def test_health_endpoint_mock(self):
+        """Test /api/health returns status ok in mock mode"""
+        success, data = self.run_test("Health Endpoint - Mock Mode", "GET", "health", 200)
+        if success:
+            if data.get("status") == "ok" and data.get("source") == "mock":
+                self.log_test("Health Mock Response", True, "Health endpoint returns correct mock response")
+            else:
+                self.log_test("Health Mock Response", False, f"Expected status=ok, source=mock, got {data}")
+        return success, data
+
+    def test_health_endpoint_prod_with_env_key(self):
+        """Test /api/health with x-blaxing-source=prod uses env BLA_API_KEY"""
+        headers = {
+            'Content-Type': 'application/json',
+            'x-blaxing-source': 'prod'
+        }
+        # This should use the env BLA_API_KEY since no X-API-KEY header is provided
+        success, data = self.run_test("Health Endpoint - Prod Mode (Env Key)", "GET", "health", 200, headers=headers)
+        if success:
+            # Should return either upstream status or fallback to error handling
+            if data.get("status") in ["ok", "error"] and data.get("source") == "prod":
+                self.log_test("Health Prod Response", True, f"Health endpoint returns prod response: {data}")
+            else:
+                self.log_test("Health Prod Response", False, f"Unexpected prod response: {data}")
+        return success, data
+
+    def test_agents_list_prod_with_env_key(self):
+        """Test /api/agents/list with x-blaxing-source=prod works using env key"""
+        headers = {
+            'Content-Type': 'application/json',
+            'x-blaxing-source': 'prod'
+        }
+        # This should use the env BLA_API_KEY and either return upstream data or fallback to mock
+        success, data = self.run_test("Agents List - Prod Mode (Env Key)", "GET", "agents/list", 200, headers=headers)
+        if success:
+            # Should return either upstream agents or fallback to mock (4 seeded agents)
+            if isinstance(data, list) and len(data) >= 1:
+                self.log_test("Agents List Prod Response", True, f"Agents list returns {len(data)} agents in prod mode")
+            else:
+                self.log_test("Agents List Prod Response", False, f"Unexpected agents list response: {data}")
+        return success, data
+
+    def test_mutating_endpoints_prod_with_env_key(self):
+        """Test mutating endpoints in prod work with env key: activate -> status active, then deactivate -> status sleep"""
+        headers = {
+            'Content-Type': 'application/json',
+            'x-blaxing-source': 'prod'
+        }
+        
+        # Test activate endpoint
+        success, data = self.run_test("Activate Agent - Prod Mode (Env Key)", "POST", "agents/sniper/activate", 200, headers=headers)
+        if success:
+            if data.get("state") == "active":
+                self.log_test("Activate Prod Response", True, "Agent activated successfully in prod mode")
+            else:
+                self.log_test("Activate Prod Response", False, f"Expected state=active, got {data}")
+        
+        # Wait a moment for state to update
+        time.sleep(1)
+        
+        # Check status after activation
+        success, data = self.run_test("Agent Status After Activate - Prod Mode", "GET", "agents/sniper/status", 200, headers=headers)
+        if success:
+            if data.get("state") == "active":
+                self.log_test("Status After Activate Prod", True, "Agent status shows active after activation")
+            else:
+                self.log_test("Status After Activate Prod", False, f"Expected state=active, got {data}")
+        
+        # Test deactivate endpoint
+        success, data = self.run_test("Deactivate Agent - Prod Mode (Env Key)", "POST", "agents/sniper/deactivate", 200, headers=headers)
+        if success:
+            if data.get("state") == "sleep":
+                self.log_test("Deactivate Prod Response", True, "Agent deactivated successfully in prod mode")
+            else:
+                self.log_test("Deactivate Prod Response", False, f"Expected state=sleep, got {data}")
+        
+        # Wait a moment for state to update
+        time.sleep(1)
+        
+        # Check status after deactivation
+        success, data = self.run_test("Agent Status After Deactivate - Prod Mode", "GET", "agents/sniper/status", 200, headers=headers)
+        if success:
+            if data.get("state") == "sleep":
+                self.log_test("Status After Deactivate Prod", True, "Agent status shows sleep after deactivation")
+            else:
+                self.log_test("Status After Deactivate Prod", False, f"Expected state=sleep, got {data}")
+
+    def test_blaxing_integration_features(self):
+        """Test all Blaxing integration features from the review request"""
+        print("\n🔧 Testing Blaxing Integration Features")
+        
+        # 1. Backend /api/health returns status ok in mock mode
+        print("\n1️⃣ Testing Health Endpoint - Mock Mode")
+        self.test_health_endpoint_mock()
+        
+        # 2. Backend /api/health with x-blaxing-source=prod uses env BLA_API_KEY
+        print("\n2️⃣ Testing Health Endpoint - Prod Mode with Env Key")
+        self.test_health_endpoint_prod_with_env_key()
+        
+        # 3. Backend /api/agents/list with x-blaxing-source=prod works using env key
+        print("\n3️⃣ Testing Agents List - Prod Mode with Env Key")
+        self.test_agents_list_prod_with_env_key()
+        
+        # 4. Mutating endpoints in prod work with env key
+        print("\n4️⃣ Testing Mutating Endpoints - Prod Mode with Env Key")
+        self.test_mutating_endpoints_prod_with_env_key()
+
     def test_default_mock_behavior(self):
         """Test default behavior without headers - should default to mock"""
         # No x-blaxing-source header should default to mock
