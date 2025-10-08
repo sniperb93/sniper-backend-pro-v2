@@ -325,7 +325,7 @@ async def builder_create_agent(body: BuilderAgentCreate):
     to_store['_id'] = doc['id']
     try:
         await db.agents_builder.insert_one(to_store)
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="Failed to create agent")
     # Audit (no secrets)
     await log_audit(AuditEntry(action='builder_create_agent', agent_id=doc['id'], method='POST', path='/agent-builder/create', success=True, upstream_status=201))
