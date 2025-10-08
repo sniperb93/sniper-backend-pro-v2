@@ -74,6 +74,26 @@ class N8nTriggerUrlPayload(BaseModel):
     url: str
     payload: Dict[str, Any] = Field(default_factory=dict)
 
+# --- Builder models (FastAPI version of your Flask blueprint) ---
+class BuilderAgentCreate(BaseModel):
+    name: str
+    role: str
+    personality: str
+    mission: str
+    api_key: Optional[str] = None
+    active: bool = True
+    use_openai: bool = False
+
+class BuilderAgentOut(BaseModel):
+    id: str
+    name: str
+    role: str
+    personality: str
+    mission: str
+    active: bool
+    use_openai: bool
+    created_at: datetime
+
 # Helpers
 async def log_audit(entry: AuditEntry) -> None:
     try:
@@ -251,6 +271,47 @@ async def n8n_trigger_url(body: N8nTriggerUrlPayload):
         masked_path = url[:40] + '...' + url[-6:] if len(url) > 50 else url
         await log_audit(AuditEntry(action='n8n_trigger_url', method='POST', path=masked_path, success=False, error=str(e)[:400]))
         raise HTTPException(status_code=502, detail="Failed to reach n8n")
+
+# --- Agent Builder (FastAPI) ---
+@api_router.post("/agent-builder/create", response_model=BuilderAgentOut)
+async def builder_create_agent(body: BuilderAgentCreate):
+    # Create document with UUID id and created_at
+    doc = {
+        'id': str(uuid.uuid4()),
+        'name': body.name,
+        'role': body.role,
+        'personality': body.personality,
+        'mission': body.mission,
+        'api_key': body.api_key,  # stored but never returned by out model
+        'active': body.active,
+        'use_openai': body.use_openai,
+        'created_at': datetime.now(timezone.utc).isoformat(),
+    }
+    to_store = dict(doc)
+    to_store['_id'] = doc['id']
+    try:
+        await db.agents_builder.insert_one(to_store)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to create agent")
+    # Audit (no secrets)
+    await log_audit(AuditEntry(action='builder_create_agent', agent_id=doc['id'], method='POST', path='/agent-builder/create', success=True, upstream_status=201))
+    # Convert created_at to datetime for the response model
+    return BuilderAgentOut(**{**doc, 'created_at': datetime.fromisoformat(doc['created_at'])})
+
+@api_router.get("/agent-builder/list", response_model=List[BuilderAgentOut])
+async def builder_list_agents():
+    items = await db.agents_builder.find({}, {"_id": 0, "api_key": 0}).sort("created_at", -1).to_list(1000)
+    # Ensure created_at is datetime
+    normalized: List[BuilderAgentOut] = []
+    for it in items:
+        ca = it.get('created_at')
+        if isinstance(ca, str):
+            try:
+                it['created_at'] = datetime.fromisoformat(ca)
+            except Exception:
+                it['created_at'] = datetime.now(timezone.utc)
+        normalized.append(BuilderAgentOut(**it))
+    return normalized
 
 # --- Audit queries ---
 @api_router.get("/audit")
