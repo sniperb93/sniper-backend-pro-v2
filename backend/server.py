@@ -95,6 +95,11 @@ class HookNotifyRequest(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict)
 
 
+class TriggerUrlRequest(BaseModel):
+    url: str
+    payload: Optional[Dict[str, Any]] = None
+
+
 # ---------- Seed Data ----------
 
 DEFAULT_AGENTS = [
@@ -151,6 +156,21 @@ def send_n8n(flow: str, payload: Dict[str, Any], custom_base: Optional[str] = No
         raise HTTPException(status_code=502, detail=f"n8n upstream error: {str(e)}")
 
 
+def trigger_url(url: str, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    body = payload or {"source": "dashboard", "timestamp": now_iso()}
+    if EMERGENT_DRY_RUN:
+        return {"ok": True, "dry_run": True, "url": url, "payload": body}
+    try:
+        resp = requests.post(url, json=body, timeout=REQ_TIMEOUT)
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=f"n8n error: {resp.text}")
+        return {"ok": True, "status": resp.status_code}
+    except requests.Timeout:
+        raise HTTPException(status_code=504, detail="n8n timeout")
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"n8n upstream error: {str(e)}")
+
+
 async def get_hooks_config() -> HooksConfig:
     doc = await db.config.find_one({"_id": "webhooks"}, {"_id": 0})
     if not doc:
@@ -170,7 +190,6 @@ async def emit_event(flow: Optional[str], event: str, data: Dict[str, Any]):
     try:
         return send_n8n(flow, payload)
     except HTTPException as e:
-        # Don't block main operation
         logger.warning(f"n8n emit failed: {e.detail}")
         return {"ok": False, "error": e.detail}
 
@@ -231,8 +250,6 @@ def parse_agent(doc: Dict[str, Any]) -> Agent:
     )
 
 
-# --- Remote proxy helpers ---
-
 def resolve_base_from_header(source: str, header_base: Optional[str]) -> str:
     if header_base:
         return header_base.strip()
@@ -258,8 +275,6 @@ def forward_blaxing(method: str, path: str, api_key: Optional[str], source: str,
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Upstream error: {str(e)}")
 
-
-# The frontend sets 'x-blaxing-source': 'prod' | 'staging' | 'mock'. Default 'mock'.
 
 @api_router.get("/agents/list", response_model=List[Agent])
 async def list_agents(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
@@ -388,7 +403,6 @@ async def activate_agent(agent_id: str, x_blaxing_source: Optional[str] = Header
     src = (x_blaxing_source or "mock").lower()
     if src in ("prod", "staging"):
         if EMERGENT_DRY_RUN:
-            # Emit webhook and return dry-run
             cfg = await get_hooks_config()
             await emit_event(cfg.activation_flow, "agent_activation", {"agent_id": agent_id, "source": src})
             return {"ok": True, "dry_run": True, "agent_id": agent_id, "state": "active"}
@@ -438,7 +452,6 @@ async def agent_status(agent_id: str, x_blaxing_source: Optional[str] = Header(d
             data = forward_blaxing("GET", f"/agents/{agent_id}/status", x_api_key, src, x_blaxing_base)
             state = data.get("state", "sleep")
             uptime = int(data.get("uptime", 0)) if str(data.get("uptime", "0")).isdigit() else 0
-            # status change detection cache
             cached = await db.agent_state_cache.find_one({"agent_id": agent_id}, {"_id": 0})
             if not cached or cached.get("state") != state:
                 await db.agent_state_cache.update_one({"agent_id": agent_id}, {"$set": {"state": state, "updated_at": now_iso()}}, upsert=True)
@@ -479,6 +492,11 @@ async def hooks_notify(body: HookNotifyRequest):
     return res
 
 
+@api_router.post("/n8n/trigger-url")
+async def n8n_trigger_url(body: TriggerUrlRequest):
+    return trigger_url(body.url, body.payload)
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
@@ -490,7 +508,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 

@@ -9,16 +9,14 @@ import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const useApi = (headers) => {
   const api = useMemo(() => axios.create({ baseURL: API }), []);
-  useEffect(() => {
-    api.defaults.headers.common = { ...api.defaults.headers.common, ...headers };
-  }, [api, headers]);
+  useEffect(() => { api.defaults.headers.common = { ...api.defaults.headers.common, ...headers }; }, [api, headers]);
   return api;
 };
 
@@ -35,141 +33,76 @@ const useAgentsApi = (headers) => {
     getHooksConfig: () => api.get(`/hooks/config`).then((r) => r.data),
     saveHooksConfig: (cfg) => api.post(`/hooks/config`, cfg).then((r) => r.data),
     notify: (payload) => api.post(`/hooks/notify`, payload).then((r) => r.data),
+    triggerUrl: (payload) => api.post(`/n8n/trigger-url`, payload).then((r) => r.data),
   };
 };
 
-const prettyUptime = (seconds = 0) => {
-  const s = Number(seconds) || 0;
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  if (h) return `${h}h ${m}m`;
-  if (m) return `${m}m ${sec}s`;
-  return `${sec}s`;
-};
+const prettyUptime = (s = 0) => { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60; return h ? `${h}h ${m}m` : m ? `${m}m ${sec}s` : `${sec}s`; };
 
 const StatusPill = ({ state, id }) => (
-  <Badge
-    data-testid={`status-badge-${id}`}
-    variant={state === "active" ? "secondary" : "outline"}
-    className={
-      state === "active"
-        ? "bg-emerald-600/10 text-emerald-700 border-emerald-200"
-        : "text-neutral-600 border-neutral-300"
-    }
-  >
+  <Badge data-testid={`status-badge-${id}`} variant={state === "active" ? "secondary" : "outline"} className={state === "active" ? "bg-emerald-600/10 text-emerald-700 border-emerald-200" : "text-neutral-600 border-neutral-300"}>
     {state === "active" ? "Active" : "Sleep"}
   </Badge>
 );
 
-const AgentCard = ({ agent, onActivate, onDeactivate, onCheck }) => {
-  return (
-    <Card data-testid={`agent-card-${agent.agent_id}`} className="group relative overflow-hidden border-neutral-200 hover:border-neutral-300 transition-colors">
-      <CardHeader className="flex-row items-center justify-between">
-        <CardTitle className="text-lg font-semibold tracking-tight flex items-center gap-3">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-amber-100 to-rose-50 text-amber-700 ring-1 ring-amber-200">
-            {agent.name.charAt(0)}
-          </span>
-          {agent.name}
-        </CardTitle>
-        <StatusPill state={agent.state} id={agent.agent_id} />
-      </CardHeader>
-      <CardContent className="flex items-center justify-between">
-        <div className="space-y-1">
-          <div className="text-sm text-neutral-600" data-testid={`agent-id-${agent.agent_id}`}>ID: {agent.agent_id}</div>
-          <div className="text-sm text-neutral-600" data-testid={`agent-uptime-${agent.agent_id}`}>Uptime: {prettyUptime(agent.uptime)}</div>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            data-testid={`activate-btn-${agent.agent_id}`}
-            onClick={() => onActivate(agent.agent_id)}
-            className="rounded-full bg-emerald-600 text-white hover:bg-emerald-700"
-          >
-            Activate
-          </Button>
-          <Button
-            data-testid={`deactivate-btn-${agent.agent_id}`}
-            onClick={() => onDeactivate(agent.agent_id)}
-            variant="outline"
-            className="rounded-full border-neutral-300 hover:bg-neutral-100"
-          >
-            Deactivate
-          </Button>
-          <Button
-            data-testid={`check-status-btn-${agent.agent_id}`}
-            onClick={() => onCheck(agent.agent_id)}
-            variant="ghost"
-            className="rounded-full hover:bg-neutral-100"
-          >
-            Check
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-};
+const AgentCard = ({ agent, onActivate, onDeactivate, onCheck }) => (
+  <Card data-testid={`agent-card-${agent.agent_id}`} className="group relative overflow-hidden border-neutral-200 hover:border-neutral-300 transition-colors">
+    <CardHeader className="flex-row items-center justify-between">
+      <CardTitle className="text-lg font-semibold tracking-tight flex items-center gap-3">
+        <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-amber-100 to-rose-50 text-amber-700 ring-1 ring-amber-200">{agent.name.charAt(0)}</span>
+        {agent.name}
+      </CardTitle>
+      <StatusPill state={agent.state} id={agent.agent_id} />
+    </CardHeader>
+    <CardContent className="flex items-center justify-between">
+      <div className="space-y-1">
+        <div className="text-sm text-neutral-600" data-testid={`agent-id-${agent.agent_id}`}>ID: {agent.agent_id}</div>
+        <div className="text-sm text-neutral-600" data-testid={`agent-uptime-${agent.agent_id}`}>Uptime: {prettyUptime(agent.uptime)}</div>
+      </div>
+      <div className="flex gap-2">
+        <Button data-testid={`activate-btn-${agent.agent_id}`} onClick={() => onActivate(agent.agent_id)} className="rounded-full bg-emerald-600 text-white hover:bg-emerald-700">Activate</Button>
+        <Button data-testid={`deactivate-btn-${agent.agent_id}`} onClick={() => onDeactivate(agent.agent_id)} variant="outline" className="rounded-full border-neutral-300 hover:bg-neutral-100">Deactivate</Button>
+        <Button data-testid={`check-status-btn-${agent.agent_id}`} onClick={() => onCheck(agent.agent_id)} variant="ghost" className="rounded-full hover:bg-neutral-100">Check</Button>
+      </div>
+    </CardContent>
+  </Card>
+);
 
 const WorkflowsDrawer = ({ open, setOpen, api, toast }) => {
   const [cfg, setCfg] = useState({ activation_flow: "", deactivation_flow: "", status_change_flow: "" });
   const [loading, setLoading] = useState(false);
 
-
   // Centralized error handler for this drawer
   const handleError = (action, e) => {
     // eslint-disable-next-line no-console
     console.error(`[Blaxing Error - ${action}]`, e?.response?.data || e);
-    toast({
-      title: `${action} failed`,
-      description: e?.response?.data?.detail || e?.message || "Unknown error",
-      variant: "destructive",
-    });
+    toast({ title: `${action} failed`, description: e?.response?.data?.detail || e?.message || "Unknown error", variant: "destructive" });
   };
 
   const load = async () => {
     setLoading(true);
     try {
       const data = await api.getHooksConfig();
-      setCfg({
-        activation_flow: data.activation_flow || "",
-        deactivation_flow: data.deactivation_flow || "",
-        status_change_flow: data.status_change_flow || "",
-      });
-    } catch (e) {
-      handleError("load config", e);
-    } finally {
-      setLoading(false);
-    }
+      setCfg({ activation_flow: data.activation_flow || "", deactivation_flow: data.deactivation_flow || "", status_change_flow: data.status_change_flow || "" });
+    } catch (e) { handleError("load config", e); } finally { setLoading(false); }
   };
 
-  useEffect(() => {
-    if (open) load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  useEffect(() => { if (open) load(); }, [open]);
 
   const save = async () => {
-    try {
-      await api.saveHooksConfig(cfg);
-      toast({ title: "Workflows saved" });
-    } catch (e) {
-      handleError("save workflows", e);
-    }
+    try { await api.saveHooksConfig(cfg); toast({ title: "Workflows saved" }); }
+    catch (e) { handleError("save workflows", e); }
   };
 
   const test = async (type) => {
-    const map = {
-      activation: cfg.activation_flow,
-      deactivation: cfg.deactivation_flow,
-      status: cfg.status_change_flow,
-    };
+    const map = { activation: cfg.activation_flow, deactivation: cfg.deactivation_flow, status: cfg.status_change_flow };
     const flow = map[type];
     if (!flow) return toast({ title: "No flow set", description: `Missing ${type} flow`, variant: "destructive" });
     try {
       const res = await api.notify({ flow, event: `test_${type}`, data: { from: "ui", at: new Date().toISOString() } });
       if (res?.dry_run) toast({ title: `Test ${type} (dry run)`, description: flow });
       else toast({ title: `Test ${type} sent`, description: flow });
-    } catch (e) {
-      handleError(`test ${type}`, e);
-    }
+    } catch (e) { handleError(`test ${type}`, e); }
   };
 
   return (
@@ -204,45 +137,69 @@ const WorkflowsDrawer = ({ open, setOpen, api, toast }) => {
   );
 };
 
-const HeaderControls = ({ mode, setMode, apiKey, setApiKey, onApply, stagingBase, setStagingBase, onActivateAll, onDeactivateAll, onOpenWorkflows }) => {
-  return (
-    <div className="flex items-center gap-3" data-testid="header-controls">
-      <div className="w-48">
-        <Select value={mode} onValueChange={setMode}>
-          <SelectTrigger data-testid="mode-select-trigger">
-            <SelectValue placeholder="Mode" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem data-testid="mode-option-mock" value="mock">Mock</SelectItem>
-            <SelectItem data-testid="mode-option-prod" value="prod">Prod</SelectItem>
-            <SelectItem data-testid="mode-option-staging" value="staging">Staging</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      {mode === "staging" && (
-        <Input data-testid="staging-base-input" type="text" placeholder="https://staging.blaxing.fr/api" value={stagingBase} onChange={(e) => setStagingBase(e.target.value)} className="w-96" />
-      )}
-      <Input data-testid="api-key-input" type="password" placeholder="X-API-KEY" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-64" />
-  // Centralized error handler on main dashboard scope
-  const handleDashError = (action, e) => {
-    // eslint-disable-next-line no-console
-    console.error(`[Blaxing Error - ${action}]`, e?.response?.data || e);
-    toast({
-      title: `${action} failed`,
-      description: e?.response?.data?.detail || e?.message || "Unknown error",
-      variant: "destructive",
-    });
+const QuickFlows = ({ api }) => {
+  const { toast } = useToast();
+  const flows = [
+    { key: "trade_alerts_flow", url: "http://31.97.193.13:5678/webhook-test/trade_alerts_flow" },
+    { key: "crystal_autopost", url: "http://31.97.193.13:5678/webhook-test/crystal_autopost" },
+    { key: "legal_guard", url: "http://31.97.193.13:5678/webhook-test/legal_guard" },
+    { key: "auto_restart", url: "http://31.97.193.13:5678/webhook-test/auto_restart" },
+  ];
+
+  const handleTrigger = async (item) => {
+    try {
+      const res = await api.triggerUrl({ url: item.url });
+      if (res?.dry_run) toast({ title: "Flow triggered (dry run)", description: item.key });
+      else toast({ title: "Flow triggered", description: item.key });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("[Blaxing Error - quick flow]", e?.response?.data || e);
+      toast({ title: "Quick flow failed", description: e?.response?.data?.detail || e?.message || "Unknown error", variant: "destructive" });
+    }
   };
 
-      <Button data-testid="apply-headers-btn" className="rounded-full bg-stone-900 text-white hover:bg-stone-800" onClick={onApply}>Apply</Button>
-      <div className="hidden md:flex gap-2 pl-2">
-        <Button data-testid="activate-all-btn" className="rounded-full bg-emerald-600 text-white hover:bg-emerald-700" onClick={onActivateAll}>Activate All</Button>
-        <Button data-testid="deactivate-all-btn" variant="outline" className="rounded-full border-neutral-300 hover:bg-neutral-100" onClick={onDeactivateAll}>Deactivate All</Button>
-        <Button data-testid="open-workflows-btn" variant="outline" className="rounded-full border-neutral-300 hover:bg-neutral-100" onClick={onOpenWorkflows}>Workflows</Button>
-      </div>
-    </div>
+  return (
+    <Card data-testid="quick-flows-card" className="mt-8 border-neutral-200">
+      <CardHeader>
+        <CardTitle className="text-lg">Quick n8n Flows</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {flows.map((f) => (
+            <Button key={f.key} data-testid={`quick-flow-btn-${f.key}`} onClick={() => handleTrigger(f)} className="rounded-full bg-stone-900 text-white hover:bg-stone-800">
+              {f.key}
+            </Button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 };
+
+const HeaderControls = ({ mode, setMode, apiKey, setApiKey, onApply, stagingBase, setStagingBase, onActivateAll, onDeactivateAll, onOpenWorkflows }) => (
+  <div className="flex items-center gap-3" data-testid="header-controls">
+    <div className="w-48">
+      <Select value={mode} onValueChange={setMode}>
+        <SelectTrigger data-testid="mode-select-trigger"><SelectValue placeholder="Mode" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem data-testid="mode-option-mock" value="mock">Mock</SelectItem>
+          <SelectItem data-testid="mode-option-prod" value="prod">Prod</SelectItem>
+          <SelectItem data-testid="mode-option-staging" value="staging">Staging</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+    {mode === "staging" && (
+      <Input data-testid="staging-base-input" type="text" placeholder="https://staging.blaxing.fr/api" value={stagingBase} onChange={(e) => setStagingBase(e.target.value)} className="w-96" />
+    )}
+    <Input data-testid="api-key-input" type="password" placeholder="X-API-KEY" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-64" />
+    <Button data-testid="apply-headers-btn" className="rounded-full bg-stone-900 text-white hover:bg-stone-800" onClick={onApply}>Apply</Button>
+    <div className="hidden md:flex gap-2 pl-2">
+      <Button data-testid="activate-all-btn" className="rounded-full bg-emerald-600 text-white hover:bg-emerald-700" onClick={onActivateAll}>Activate All</Button>
+      <Button data-testid="deactivate-all-btn" variant="outline" className="rounded-full border-neutral-300 hover:bg-neutral-100" onClick={onDeactivateAll}>Deactivate All</Button>
+      <Button data-testid="open-workflows-btn" variant="outline" className="rounded-full border-neutral-300 hover:bg-neutral-100" onClick={onOpenWorkflows}>Workflows</Button>
+    </div>
+  </div>
+);
 
 const Dashboard = () => {
   const { toast } = useToast();
@@ -255,6 +212,13 @@ const Dashboard = () => {
   const [wfOpen, setWfOpen] = useState(false);
   const api = useAgentsApi(headers);
 
+  // Centralized error handler on main dashboard scope
+  const handleDashError = (action, e) => {
+    // eslint-disable-next-line no-console
+    console.error(`[Blaxing Error - ${action}]`, e?.response?.data || e);
+    toast({ title: `${action} failed`, description: e?.response?.data?.detail || e?.message || "Unknown error", variant: "destructive" });
+  };
+
   const applyHeaders = () => {
     const base = { "x-blaxing-source": mode };
     if (mode === "staging" && stagingBase) base["x-blaxing-base"] = stagingBase;
@@ -265,66 +229,36 @@ const Dashboard = () => {
 
   const fetchAgents = async () => {
     setLoading(true);
-    try {
-      const data = await api.list();
-      setAgents(data);
-    } catch (e) {
-      handleDashError("load agents", e);
-    } finally {
-      setLoading(false);
-    }
+    try { setAgents(await api.list()); }
+    catch (e) { handleDashError("load agents", e); }
+    finally { setLoading(false); }
   };
 
   useEffect(() => { fetchAgents(); }, [headers]);
 
   const handleActivate = async (id) => {
-    try {
-      await api.activate(id);
-      toast({ title: `Activated ${id}` });
-      setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: "active" } : a)));
-    } catch (e) {
-      handleDashError("activate", e);
-    }
+    try { await api.activate(id); toast({ title: `Activated ${id}` }); setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: "active" } : a))); }
+    catch (e) { handleDashError("activate", e); }
   };
 
   const handleDeactivate = async (id) => {
-    try {
-      await api.deactivate(id);
-      toast({ title: `Deactivated ${id}` });
-      setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: "sleep", uptime: 0 } : a)));
-    } catch (e) {
-      handleDashError("deactivate", e);
-    }
+    try { await api.deactivate(id); toast({ title: `Deactivated ${id}` }); setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: "sleep", uptime: 0 } : a))); }
+    catch (e) { handleDashError("deactivate", e); }
   };
 
   const handleCheck = async (id) => {
-    try {
-      const res = await api.status(id);
-      toast({ title: `${id} • ${res.state}`, description: `Uptime ${prettyUptime(res.uptime)}` });
-      setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: res.state, uptime: res.uptime } : a)));
-    } catch (e) {
-      handleDashError("status", e);
-    }
+    try { const res = await api.status(id); toast({ title: `${id} • ${res.state}`, description: `Uptime ${prettyUptime(res.uptime)}` }); setAgents((prev) => prev.map((a) => (a.agent_id === id ? { ...a, state: res.state, uptime: res.uptime } : a))); }
+    catch (e) { handleDashError("status", e); }
   };
 
   const handleActivateAll = async () => {
-    try {
-      const res = await api.activateAll();
-      if (res?.dry_run) toast({ title: "Activate-All (dry run)", description: "No changes applied on upstream" });
-      else { toast({ title: "All agents activated" }); fetchAgents(); }
-    } catch (e) {
-      toast({ title: "Activate-All failed", description: e.message, variant: "destructive" });
-    }
+    try { const res = await api.activateAll(); if (res?.dry_run) toast({ title: "Activate-All (dry run)", description: "No changes applied on upstream" }); else { toast({ title: "All agents activated" }); fetchAgents(); } }
+    catch (e) { handleDashError("activate-all", e); }
   };
 
   const handleDeactivateAll = async () => {
-    try {
-      const res = await api.deactivateAll();
-      if (res?.dry_run) toast({ title: "Deactivate-All (dry run)", description: "No changes applied on upstream" });
-      else { toast({ title: "All agents deactivated" }); fetchAgents(); }
-    } catch (e) {
-      toast({ title: "Deactivate-All failed", description: e.message, variant: "destructive" });
-    }
+    try { const res = await api.deactivateAll(); if (res?.dry_run) toast({ title: "Deactivate-All (dry run)", description: "No changes applied on upstream" }); else { toast({ title: "All agents deactivated" }); fetchAgents(); } }
+    catch (e) { handleDashError("deactivate-all", e); }
   };
 
   return (
@@ -349,21 +283,19 @@ const Dashboard = () => {
           />
         </div>
 
+        {/* Agents grid */}
         {loading ? (
           <div data-testid="loading-state" className="text-neutral-600">Loading agents...</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {agents.map((agent) => (
-              <AgentCard
-                key={agent.agent_id}
-                agent={agent}
-                onActivate={handleActivate}
-                onDeactivate={handleDeactivate}
-                onCheck={handleCheck}
-              />
+              <AgentCard key={agent.agent_id} agent={agent} onActivate={handleActivate} onDeactivate={handleDeactivate} onCheck={handleCheck} />
             ))}
           </div>
         )}
+
+        {/* Quick Flows */}
+        <QuickFlows api={api} />
       </div>
       <Toaster />
       <WorkflowsDrawer open={wfOpen} setOpen={setWfOpen} api={useAgentsApi(headers)} toast={toast} />
