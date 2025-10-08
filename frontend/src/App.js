@@ -151,7 +151,7 @@ const WorkflowsDrawer = ({ open, setOpen, api, toast }) => {
       await api.saveHooksConfig(cfg);
       toast({ title: "Workflows saved" });
     } catch (e) {
-      toast({ title: "Save failed", description: e.message, variant: "destructive" });
+      handleError("save workflows", e);
     }
   };
 
