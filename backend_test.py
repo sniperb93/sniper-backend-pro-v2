@@ -337,6 +337,9 @@ class BlaxingAPITester:
         # Test basic connectivity
         self.test_root_endpoint()
         
+        # Test Blaxing integration features first (main focus)
+        self.test_blaxing_integration_features()
+        
         # Test default mock behavior
         print("\n📋 Testing Default Mock Behavior")
         self.test_default_mock_behavior()
