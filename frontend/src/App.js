@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Zap, Sparkles, Scale, RefreshCw } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -68,93 +69,23 @@ const AgentCard = ({ agent, onActivate, onDeactivate, onCheck }) => (
   </Card>
 );
 
-const WorkflowsDrawer = ({ open, setOpen, api, toast }) => {
-  const [cfg, setCfg] = useState({ activation_flow: "", deactivation_flow: "", status_change_flow: "" });
-  const [loading, setLoading] = useState(false);
-
-  // Centralized error handler for this drawer
-  const handleError = (action, e) => {
-    // eslint-disable-next-line no-console
-    console.error(`[Blaxing Error - ${action}]`, e?.response?.data || e);
-    toast({ title: `${action} failed`, description: e?.response?.data?.detail || e?.message || "Unknown error", variant: "destructive" });
-  };
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const data = await api.getHooksConfig();
-      setCfg({ activation_flow: data.activation_flow || "", deactivation_flow: data.deactivation_flow || "", status_change_flow: data.status_change_flow || "" });
-    } catch (e) { handleError("load config", e); } finally { setLoading(false); }
-  };
-
-  useEffect(() => { if (open) load(); }, [open]);
-
-  const save = async () => {
-    try { await api.saveHooksConfig(cfg); toast({ title: "Workflows saved" }); }
-    catch (e) { handleError("save workflows", e); }
-  };
-
-  const test = async (type) => {
-    const map = { activation: cfg.activation_flow, deactivation: cfg.deactivation_flow, status: cfg.status_change_flow };
-    const flow = map[type];
-    if (!flow) return toast({ title: "No flow set", description: `Missing ${type} flow`, variant: "destructive" });
-    try {
-      const res = await api.notify({ flow, event: `test_${type}`, data: { from: "ui", at: new Date().toISOString() } });
-      if (res?.dry_run) toast({ title: `Test ${type} (dry run)`, description: flow });
-      else toast({ title: `Test ${type} sent`, description: flow });
-    } catch (e) { handleError(`test ${type}`, e); }
-  };
-
-  return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetContent side="right" className="w-[420px] sm:max-w-[480px]">
-        <SheetHeader>
-          <SheetTitle data-testid="workflows-title">n8n Webhooks</SheetTitle>
-          <SheetDescription data-testid="workflows-desc">Define workflow names and send test triggers.</SheetDescription>
-        </SheetHeader>
-        <div className="mt-6 space-y-4">
-          <div className="space-y-1">
-            <label className="text-sm">Activation flow</label>
-            <Input data-testid="activation-flow-input" value={cfg.activation_flow} onChange={(e) => setCfg({ ...cfg, activation_flow: e.target.value })} placeholder="crystal_post" />
-            <Button data-testid="test-activation-btn" onClick={() => test("activation")} variant="outline" className="mt-2">Test activation</Button>
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm">Deactivation flow</label>
-            <Input data-testid="deactivation-flow-input" value={cfg.deactivation_flow} onChange={(e) => setCfg({ ...cfg, deactivation_flow: e.target.value })} placeholder="pause_all" />
-            <Button data-testid="test-deactivation-btn" onClick={() => test("deactivation")} variant="outline" className="mt-2">Test deactivation</Button>
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm">Status change flow</label>
-            <Input data-testid="status-flow-input" value={cfg.status_change_flow} onChange={(e) => setCfg({ ...cfg, status_change_flow: e.target.value })} placeholder="sniper_trade" />
-            <Button data-testid="test-status-btn" onClick={() => test("status")} variant="outline" className="mt-2">Test status</Button>
-          </div>
-          <div className="pt-2">
-            <Button data-testid="save-workflows-btn" onClick={save} className="rounded-full bg-stone-900 text-white hover:bg-stone-800 w-full">Save</Button>
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
-  );
-};
-
 const QuickFlows = ({ api }) => {
   const { toast } = useToast();
   const flows = [
-    { key: "trade_alerts_flow", url: "http://31.97.193.13:5678/webhook-test/trade_alerts_flow" },
-    { key: "crystal_autopost", url: "http://31.97.193.13:5678/webhook-test/crystal_autopost" },
-    { key: "legal_guard", url: "http://31.97.193.13:5678/webhook-test/legal_guard" },
-    { key: "auto_restart", url: "http://31.97.193.13:5678/webhook-test/auto_restart" },
+    { key: "trade_alerts_flow", url: "http://31.97.193.13:5678/webhook-test/trade_alerts_flow", label: "Trade Alerts Flow", testid: "n8n-trade-btn", Icon: Zap },
+    { key: "crystal_autopost", url: "http://31.97.193.13:5678/webhook-test/crystal_autopost", label: "Crystal AutoPost", testid: "n8n-crystal-btn", Icon: Sparkles },
+    { key: "legal_guard", url: "http://31.97.193.13:5678/webhook-test/legal_guard", label: "Legal Guard", testid: "n8n-legal-btn", Icon: Scale },
+    { key: "auto_restart", url: "http://31.97.193.13:5678/webhook-test/auto_restart", label: "Auto Restart", testid: "n8n-restart-btn", Icon: RefreshCw },
   ];
 
   const handleTrigger = async (item) => {
     try {
       const res = await api.triggerUrl({ url: item.url });
-      if (res?.dry_run) toast({ title: "Flow triggered (dry run)", description: item.key });
-      else toast({ title: "Flow triggered", description: item.key });
+      toast({ title: "Flow triggered", description: `Workflow ${item.key} started successfully` });
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.error("[Blaxing Error - quick flow]", e?.response?.data || e);
-      toast({ title: "Quick flow failed", description: e?.response?.data?.detail || e?.message || "Unknown error", variant: "destructive" });
+      console.error("[Blaxing Error - Quick Flow]", e?.response?.data || e);
+      toast({ title: "Trigger failed", description: e?.response?.data?.detail || e?.message || "Unknown error", variant: "destructive" });
     }
   };
 
@@ -165,9 +96,10 @@ const QuickFlows = ({ api }) => {
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {flows.map((f) => (
-            <Button key={f.key} data-testid={`quick-flow-btn-${f.key}`} onClick={() => handleTrigger(f)} className="rounded-full bg-stone-900 text-white hover:bg-stone-800">
-              {f.key}
+          {flows.map(({ key, url, label, testid, Icon }) => (
+            <Button key={key} data-testid={testid} onClick={() => handleTrigger({ key, url })} className="rounded-full bg-stone-900 text-white hover:bg-stone-800 flex items-center gap-2">
+              <Icon className="h-4 w-4" />
+              {label}
             </Button>
           ))}
         </div>
@@ -212,7 +144,6 @@ const Dashboard = () => {
   const [wfOpen, setWfOpen] = useState(false);
   const api = useAgentsApi(headers);
 
-  // Centralized error handler on main dashboard scope
   const handleDashError = (action, e) => {
     // eslint-disable-next-line no-console
     console.error(`[Blaxing Error - ${action}]`, e?.response?.data || e);
@@ -298,7 +229,7 @@ const Dashboard = () => {
         <QuickFlows api={api} />
       </div>
       <Toaster />
-      <WorkflowsDrawer open={wfOpen} setOpen={setWfOpen} api={useAgentsApi(headers)} toast={toast} />
+      <WorkflowsDrawer open={wfOpen} setOpen={setWfOpen} api={useAgentsApi(headers)} toast={useToast().toast} />
     </div>
   );
 };

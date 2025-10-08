@@ -159,12 +159,14 @@ def send_n8n(flow: str, payload: Dict[str, Any], custom_base: Optional[str] = No
 def trigger_url(url: str, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     body = payload or {"source": "dashboard", "timestamp": now_iso()}
     if EMERGENT_DRY_RUN:
-        return {"ok": True, "dry_run": True, "url": url, "payload": body}
+        logger.info(f"n8n_trigger_url ok url={url} dry_run=True")
+        return {"ok": True, "dry_run": True, "url": url, "payload": body, "message": "Workflow was started"}
     try:
         resp = requests.post(url, json=body, timeout=REQ_TIMEOUT)
         if resp.status_code >= 400:
             raise HTTPException(status_code=resp.status_code, detail=f"n8n error: {resp.text}")
-        return {"ok": True, "status": resp.status_code}
+        logger.info(f"n8n_trigger_url ok url={url} status={resp.status_code}")
+        return {"ok": True, "status": resp.status_code, "message": "Workflow was started"}
     except requests.Timeout:
         raise HTTPException(status_code=504, detail="n8n timeout")
     except requests.RequestException as e:
