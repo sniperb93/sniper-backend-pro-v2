@@ -135,7 +135,7 @@ const WorkflowsDrawer = ({ open, setOpen, api, toast }) => {
         status_change_flow: data.status_change_flow || "",
       });
     } catch (e) {
-      toast({ title: "Failed to load config", description: e.message, variant: "destructive" });
+      handleError("load config", e);
     } finally {
       setLoading(false);
     }
