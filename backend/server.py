@@ -118,6 +118,10 @@ class AgentAskRequest(BaseModel):
     agent_id: str
     prompt: str
 
+class AgentAskGatewayRequest(BaseModel):
+    agent_id: Optional[str] = None
+    prompt: str
+
 # Helpers
 async def log_audit(entry: AuditEntry) -> None:
     try:
@@ -166,6 +170,12 @@ async def emergent_llm_infer(agent_name: str, prompt: str) -> str:
         return data.get('response') or data.get('text') or "Aucune réponse reçue du moteur Emergent."
     except httpx.RequestError:
         return "Aucune réponse reçue du moteur Emergent."
+
+async def universal_llm_gateway(prompt: str, agent_name: Optional[str] = None) -> Dict[str, Any]:
+    # For compliance, we use Emergent LLM only. Other providers can be added via platform integrations later.
+    resp = await emergent_llm_infer(agent_name or 'anonymous-agent', prompt)
+    engine = 'Emergent LLM'
+    return {"engine_used": engine, "response": resp}
 
 # File helpers for defaults
 def read_default_agents_file() -> List[Dict[str, Any]]:
@@ -364,7 +374,6 @@ async def builder_create_agent(body: BuilderAgentCreate):
 async def builder_list_agents():
     items = await db.agents_builder.find({}, {"_id": 0, "api_key": 0}).sort("created_at", -1).to_list(1000)
     if not items:
-        # fallback display from defaults file when DB empty (no persistence)
         defaults = read_default_agents_file()
         provisional = []
         for a in defaults:
@@ -419,6 +428,27 @@ async def builder_ask_agent(body: AgentAskRequest):
     audit_payload['_id'] = audit_payload['id']
     await db.audit_logs.insert_one(audit_payload)
     return {'agent': agent.get('name'), 'response': response_text, 'timestamp': audit_payload['timestamp']}
+
+@api_router.post("/agent-builder/ask/gateway")
+async def builder_ask_gateway(body: AgentAskGatewayRequest):
+    agent_name = None
+    if body.agent_id:
+        ag = await db.agents_builder.find_one({'_id': body.agent_id}) or \
+             await db.agents_builder.find_one({'id': body.agent_id}) or \
+             await db.agents_builder.find_one({'name': body.agent_id})
+        agent_name = (ag or {}).get('name') if ag else None
+    result = await universal_llm_gateway(body.prompt, agent_name)
+    await db.audit_logs.insert_one({
+        '_id': str(uuid.uuid4()),
+        'id': str(uuid.uuid4()),
+        'event': 'builder_agent_ask_gateway',
+        'agent': agent_name or body.agent_id or 'anonymous',
+        'prompt': body.prompt[:1000],
+        'engine': result.get('engine_used'),
+        'response': (result.get('response') or '')[:4000],
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    })
+    return result
 
 @api_router.get("/agent-builder/history")
 async def builder_agent_history(agent_id: str):

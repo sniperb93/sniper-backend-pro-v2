@@ -14,6 +14,7 @@ export default function AgentBuilderPanel() {
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [gatewayResponse, setGatewayResponse] = useState(null);
 
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || import.meta.env.REACT_APP_BACKEND_URL;
   const API = `${BACKEND_URL}/api`;
@@ -75,6 +76,25 @@ export default function AgentBuilderPanel() {
     }
   };
 
+  const handleAskGateway = async () => {
+    if (!askPrompt) return;
+    setLoading(true);
+    setGatewayResponse(null);
+    try {
+      const res = await fetch(`${API}/agent-builder/ask/gateway`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: selectedAgent || undefined, prompt: askPrompt }),
+      });
+      const data = await res.json();
+      setGatewayResponse(data);
+    } catch (err) {
+      setGatewayResponse({ engine_used: null, response: "Erreur lors de la requête." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fetchHistory = async (agentName) => {
     setShowHistory(true);
     setHistory([]);
@@ -94,47 +114,12 @@ export default function AgentBuilderPanel() {
       <div className="bg-gray-800 p-4 rounded-xl">
         <h3 className="text-lg font-semibold mb-2">Créer un nouvel agent</h3>
         <div className="grid md:grid-cols-2 gap-4">
-          <input
-            data-testid="new-agent-name-input"
-            type="text"
-            placeholder="Nom"
-            className="p-2 rounded bg-gray-700 text-white"
-            value={newAgent.name}
-            onChange={(e) => setNewAgent({ ...newAgent, name: e.target.value })}
-          />
-          <input
-            data-testid="new-agent-role-input"
-            type="text"
-            placeholder="Rôle"
-            className="p-2 rounded bg-gray-700 text-white"
-            value={newAgent.role}
-            onChange={(e) => setNewAgent({ ...newAgent, role: e.target.value })}
-          />
-          <input
-            data-testid="new-agent-personality-input"
-            type="text"
-            placeholder="Personnalité"
-            className="p-2 rounded bg-gray-700 text-white"
-            value={newAgent.personality}
-            onChange={(e) => setNewAgent({ ...newAgent, personality: e.target.value })}
-          />
-          <input
-            data-testid="new-agent-mission-input"
-            type="text"
-            placeholder="Mission"
-            className="p-2 rounded bg-gray-700 text-white"
-            value={newAgent.mission}
-            onChange={(e) => setNewAgent({ ...newAgent, mission: e.target.value })}
-          />
+          <input data-testid="new-agent-name-input" type="text" placeholder="Nom" className="p-2 rounded bg-gray-700 text-white" value={newAgent.name} onChange={(e) => setNewAgent({ ...newAgent, name: e.target.value })} />
+          <input data-testid="new-agent-role-input" type="text" placeholder="Rôle" className="p-2 rounded bg-gray-700 text-white" value={newAgent.role} onChange={(e) => setNewAgent({ ...newAgent, role: e.target.value })} />
+          <input data-testid="new-agent-personality-input" type="text" placeholder="Personnalité" className="p-2 rounded bg-gray-700 text-white" value={newAgent.personality} onChange={(e) => setNewAgent({ ...newAgent, personality: e.target.value })} />
+          <input data-testid="new-agent-mission-input" type="text" placeholder="Mission" className="p-2 rounded bg-gray-700 text-white" value={newAgent.mission} onChange={(e) => setNewAgent({ ...newAgent, mission: e.target.value })} />
         </div>
-        <button
-          onClick={handleCreate}
-          disabled={loading}
-          data-testid="create-agent-button"
-          className="mt-3 bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg font-semibold"
-        >
-          {loading ? "Création..." : "Créer l'agent"}
-        </button>
+        <button onClick={handleCreate} disabled={loading} data-testid="create-agent-button" className="mt-3 bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg font-semibold">{loading ? "Création..." : "Créer l'agent"}</button>
       </div>
 
       <div className="bg-gray-800 p-4 rounded-xl">
@@ -144,12 +129,7 @@ export default function AgentBuilderPanel() {
         ) : (
           <ul className="space-y-2">
             {agents.map((agent) => (
-              <li
-                key={agent.id}
-                className="p-3 rounded-lg bg-gray-700 hover:bg-gray-600 cursor-pointer"
-                data-testid={`agent-list-item-${agent.id}`}
-                onClick={() => { setSelectedAgent(agent.name); fetchHistory(agent.name); }}
-              >
+              <li key={agent.id} className="p-3 rounded-lg bg-gray-700 hover:bg-gray-600 cursor-pointer" data-testid={`agent-list-item-${agent.id}`} onClick={() => { setSelectedAgent(agent.name); fetchHistory(agent.name); }}>
                 <strong>{agent.name}</strong> — {agent.role}
                 <p className="text-sm text-gray-400">{agent.mission}</p>
               </li>
@@ -160,40 +140,30 @@ export default function AgentBuilderPanel() {
 
       <div className="bg-gray-800 p-4 rounded-xl">
         <h3 className="text-lg font-semibold mb-2">Interroger un agent</h3>
-        <select
-          className="p-2 rounded bg-gray-700 text-white w-full mb-2"
-          data-testid="ask-agent-select"
-          onChange={(e) => setSelectedAgent(e.target.value)}
-          value={selectedAgent}
-        >
+        <select className="p-2 rounded bg-gray-700 text-white w-full mb-2" data-testid="ask-agent-select" onChange={(e) => setSelectedAgent(e.target.value)} value={selectedAgent}>
           <option value="">-- Sélectionner un agent --</option>
           {agents.map((a) => (
-            <option key={a.id} value={a.name} data-testid={`ask-option-${a.id}`}>
-              {a.name}
-            </option>
+            <option key={a.id} value={a.name} data-testid={`ask-option-${a.id}`}>{a.name}</option>
           ))}
         </select>
-        <textarea
-          rows={3}
-          placeholder="Pose ta question..."
-          className="w-full p-2 rounded bg-gray-700 text-white"
-          data-testid="ask-prompt-textarea"
-          value={askPrompt}
-          onChange={(e) => setAskPrompt(e.target.value)}
-        />
-        <button
-          onClick={handleAsk}
-          disabled={loading}
-          data-testid="ask-submit-button"
-          className="mt-3 bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg font-semibold"
-        >
-          {loading ? "Réflexion..." : "Envoyer"}
-        </button>
+        <textarea rows={3} placeholder="Pose ta question..." className="w-full p-2 rounded bg-gray-700 text-white" data-testid="ask-prompt-textarea" value={askPrompt} onChange={(e) => setAskPrompt(e.target.value)} />
+        <div className="mt-3 flex gap-2 flex-wrap">
+          <button onClick={handleAsk} disabled={loading} data-testid="ask-submit-button" className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg font-semibold">{loading ? "Réflexion..." : "Envoyer (Direct)"}</button>
+          <button onClick={handleAskGateway} disabled={loading} data-testid="ask-gateway-submit-button" className="bg-amber-600 hover:bg-amber-700 px-4 py-2 rounded-lg font-semibold">{loading ? "Réflexion..." : "Envoyer (Gateway)"}</button>
+        </div>
 
         {response && (
           <div className="mt-4 p-3 bg-gray-700 rounded-lg" data-testid="ask-response-box">
-            <h4 className="font-semibold">Réponse :</h4>
+            <h4 className="font-semibold">Réponse (Direct) :</h4>
             <p className="text-gray-200 mt-1">{response}</p>
+          </div>
+        )}
+
+        {gatewayResponse && (
+          <div className="mt-4 p-3 bg-gray-700 rounded-lg" data-testid="ask-gateway-response-box">
+            <h4 className="font-semibold">Réponse (Gateway) :</h4>
+            <p className="text-gray-400">Moteur: {gatewayResponse.engine_used || "inconnu"}</p>
+            <p className="text-gray-200 mt-1">{gatewayResponse.response}</p>
           </div>
         )}
       </div>
@@ -207,15 +177,9 @@ export default function AgentBuilderPanel() {
             <ul className="space-y-3 max-h-80 overflow-y-auto">
               {history.map((h, index) => (
                 <li key={index} className="bg-gray-700 p-3 rounded-lg" data-testid={`agent-history-item-${index}`}>
-                  <p className="text-sm text-gray-300">
-                    <strong>🕒 {new Date(h.timestamp).toLocaleString()}</strong>
-                  </p>
-                  <p className="mt-1 text-gray-200">
-                    <strong>Q:</strong> {h.prompt}
-                  </p>
-                  <p className="mt-1 text-green-400">
-                    <strong>R:</strong> {h.response}
-                  </p>
+                  <p className="text-sm text-gray-300"><strong>🕒 {new Date(h.timestamp).toLocaleString()}</strong></p>
+                  <p className="mt-1 text-gray-200"><strong>Q:</strong> {h.prompt}</p>
+                  <p className="mt-1 text-green-400"><strong>R:</strong> {h.response}</p>
                 </li>
               ))}
             </ul>
