@@ -192,11 +192,13 @@ def resolve_base_from_header(source: str, header_base: Optional[str]) -> str:
 
 
 def forward_blaxing(method: str, path: str, api_key: Optional[str], source: str, header_base: Optional[str], json: Optional[dict] = None):
-    if not api_key:
+    # Prefer explicit header, fallback to env BLA_API_KEY
+    key = api_key or os.environ.get("BLA_API_KEY")
+    if not key:
         raise HTTPException(status_code=401, detail="X-API-KEY required for prod/staging mode")
     base = resolve_base_from_header(source, header_base)
     url = f"{base}{path}"
-    headers = {"X-API-KEY": api_key}
+    headers = {"X-API-KEY": key}
     try:
         resp = requests.request(method, url, json=json, headers=headers, timeout=REQ_TIMEOUT)
         if resp.status_code >= 400:
