@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import "@/App.css";
 import axios from "axios";
 import { Toaster, toast } from "sonner";
+import AgentBuilderPanel from "@/components/AgentBuilderPanel.jsx";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -258,14 +259,18 @@ export default function App() {
           </div>
         </Section>
 
+        <Section title="Agent Builder">
+          <AgentBuilderPanel />
+        </Section>
+
         <Section title="Audit (latest)">
           <div className="audit-list" data-testid="audit-list">
             {audit.map((it) => (
               <div className="audit-row" key={it.id}>
                 <div>{new Date(it.timestamp).toLocaleString()}</div>
-                <div>{it.action}</div>
-                <div>{it.agent_id || '-'}</div>
-                <div>{it.success ? 'ok' : 'err'}</div>
+                <div>{it.action || it.event}</div>
+                <div>{it.agent_id || it.agent || '-'}</div>
+                <div>{typeof it.success === 'boolean' ? (it.success ? 'ok' : 'err') : '-'}</div>
                 <div>{it.upstream_status || '-'}</div>
               </div>
             ))}
