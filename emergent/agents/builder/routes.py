@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from .models import BlaxingAgent
 import json, os
 
@@ -8,11 +8,11 @@ AGENTS_FILE = os.path.join(BASE_DIR, "../data/agents.json")
 
 @builder_bp.route("/create_agent", methods=["POST"])
 def create_agent():
-    data = request.json or {}
+    data = request.json
     new_agent = BlaxingAgent(**data)
     os.makedirs(os.path.dirname(AGENTS_FILE), exist_ok=True)
     if os.path.exists(AGENTS_FILE):
-        with open(AGENTS_FILE, "r", encoding="utf-8") as f:
+        with open(AGENTS_FILE, "r") as f:
             try:
                 agents = json.load(f)
             except Exception:
@@ -20,14 +20,14 @@ def create_agent():
     else:
         agents = []
     agents.append(new_agent.to_dict())
-    with open(AGENTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(agents, f, indent=2, ensure_ascii=False)
-    return jsonify({"status": "success", "agent": new_agent.to_dict()}), 201
+    with open(AGENTS_FILE, "w") as f:
+        json.dump(agents, f, indent=2)
+    return jsonify({"status":"success","agent": new_agent.to_dict()}), 201
 
 @builder_bp.route("/list_agents", methods=["GET"])
 def list_agents():
     if os.path.exists(AGENTS_FILE):
-        with open(AGENTS_FILE, "r", encoding="utf-8") as f:
+        with open(AGENTS_FILE, "r") as f:
             try:
                 agents = json.load(f)
             except Exception:
