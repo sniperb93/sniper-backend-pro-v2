@@ -1,0 +1,1 @@
+# Marks "emergent.stripe" as a Python package
