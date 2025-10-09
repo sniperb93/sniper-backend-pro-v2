@@ -1,0 +1,1 @@
+# Marks "emergent.trader" as a Python package
