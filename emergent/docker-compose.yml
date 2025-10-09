@@ -1,0 +1,15 @@
+version: "3.8"
+services:
+  emergent:
+    build: .
+    container_name: emergent
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./:/app
+    working_dir: /app
+    # En dev, on réinstalle pour refléter les changements montés par le volume
+    command: sh -c "pip install -r requirements.txt && gunicorn -w 4 -b 0.0.0.0:5000 main:app"
+    ports:
+      - "5000:5000"
