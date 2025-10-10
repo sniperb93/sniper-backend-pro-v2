@@ -1,33 +1,39 @@
-# Emergent Flask Service (Docker)
+# Emergent Flask Service (Docker & Local)
 
-## Prérequis
-- Docker + Docker Compose
-- Fichier `.env` à la racine de ce dossier (optionnel)
-  - Exemples utiles:
-    - FLASK_ENV=production
-    - N8N_WEBHOOK_AUTH=enabled
-    - N8N_WEBHOOK_TOKEN=your_secret_token
+## Local (venv) quick start
+```bash
+cd emergent
+chmod +x scripts/setup_local_venv.sh
+./scripts/setup_local_venv.sh
+# or manual:
+# python3 -m venv venv && source venv/bin/activate
+# pip install -r requirements.txt
+# pip install python-binance requests python-dotenv
+```
 
-## Démarrage (dev)
+Check imports:
+```bash
+python scripts/verify_python_env.py
+# or
+python -c "import binance, requests, dotenv; print('ok', binance, requests, dotenv)"
+```
+
+Run service:
+```bash
+python main.py
+# or
+venv/bin/gunicorn -w 4 -b 0.0.0.0:${PORT:-5000} main:app
+```
+
+## Docker Compose
 ```bash
 cd emergent
 docker compose up --build -d
 ```
 
-L’application écoute sur http://localhost:5000
+## Environment (.env)
+- See `.env` in this folder for example keys (Stripe/Binance/n8n/OpenAI)
+- main.py uses `load_dotenv()` so `python main.py` auto-loads `.env`
 
-## Déploiement (prod)
-- Option 1: utiliser directement `docker-compose.yml` (sans volume `.:/app` en prod pour figer l’image)
-- Option 2: script shell
-```bash
-./deploy.sh
-```
-
-## Endpoints de base
-- GET `/` → { status: "ok", service: "emergent" }
-- Blueprints facultatifs:
-  - `/builder` (si présents dans le code)
-  - `/stripe`
-  - `/trader`
-
-Note: Ce service Flask est indépendant du backend FastAPI principal qui tourne via supervisor (0.0.0.0:8001, préfixe /api).
+## Notes
+- This Flask bundle is independent of the main FastAPI app that powers the Blaxing Orchestrator.
