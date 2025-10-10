@@ -27,6 +27,12 @@ try:
 except Exception:
     pass
 
+try:
+    from emergent.executor.routes import agent_exec_bp
+    app.register_blueprint(agent_exec_bp, url_prefix="/executor")
+except Exception:
+    pass
+
 @app.route("/")
 def index():
     return jsonify({"status":"ok","service":"emergent"}), 200
