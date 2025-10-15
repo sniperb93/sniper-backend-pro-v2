@@ -372,15 +372,6 @@ async def register_agent(payload: AgentCreate, x_blaxing_source: Optional[str] =
     return parse_agent(doc)
 
 
-@api_router.post("/agents/activate-all")
-async def activate_all(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
-    src = (x_blaxing_source or "mock").lower()
-    if src in ("prod", "staging"):
-        if EMERGENT_DRY_RUN:
-            return {"ok": True, "dry_run": True, "action": "activate-all"}
-        _ = forward_blaxing("POST", "/agents/activate-all", x_api_key, src, x_blaxing_base)
-        return {"ok": True, "action": "activate-all"}
-
 class CoreRouteRequest(BaseModel):
     agent: str
     action: str
@@ -412,6 +403,13 @@ async def core_router_route(body: CoreRouteRequest):
         "routed_to": routed,
     }
 
+
+@api_router.post("/agents/activate-all")
+async def activate_all(x_blaxing_source: Optional[str] = Header(default="mock"), x_api_key: Optional[str] = Header(default=None), x_blaxing_base: Optional[str] = Header(default=None)):
+    src = (x_blaxing_source or "mock").lower()
+    if src in ("prod", "staging"):
+        if EMERGENT_DRY_RUN:
+            return {"ok": True, "dry_run": True, "action": "activate-all"}
         _ = forward_blaxing("POST", "/agents/activate-all", x_api_key, src, x_blaxing_base)
         return {"ok": True, "action": "activate-all"}
     await ensure_seed_agents()
