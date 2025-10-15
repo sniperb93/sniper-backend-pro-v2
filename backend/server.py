@@ -378,6 +378,38 @@ async def activate_all(x_blaxing_source: Optional[str] = Header(default="mock"),
     if src in ("prod", "staging"):
         if EMERGENT_DRY_RUN:
             return {"ok": True, "dry_run": True, "action": "activate-all"}
+
+class CoreRouteRequest(BaseModel):
+    agent: str
+    action: str
+    message: str
+
+
+@api_router.post("/core-router")
+async def core_router_route(body: CoreRouteRequest):
+    # Minimal mock of CoreRouter behaviour
+    payload = body.model_dump()
+    agent = payload.get("agent", "").lower()
+    routed = None
+    if agent in {"sniper", "crystal", "sonia", "corerouter"}:
+        routed = agent
+    else:
+        # naive routing by keywords
+        text = (payload.get("message") or "").lower()
+        if any(k in text for k in ["trade", "buy", "sell", "signal"]):
+            routed = "sniper"
+        elif any(k in text for k in ["legal", "contrat", "rgpd", "compliance"]):
+            routed = "sonia"
+        elif any(k in text for k in ["post", "tweet", "tiktok", "content", "publie"]):
+            routed = "crystal"
+        else:
+            routed = "corerouter"
+    return {
+        "ok": True,
+        "received": payload,
+        "routed_to": routed,
+    }
+
         _ = forward_blaxing("POST", "/agents/activate-all", x_api_key, src, x_blaxing_base)
         return {"ok": True, "action": "activate-all"}
     await ensure_seed_agents()
