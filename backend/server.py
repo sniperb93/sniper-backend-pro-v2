@@ -378,6 +378,8 @@ async def activate_all(x_blaxing_source: Optional[str] = Header(default="mock"),
     if src in ("prod", "staging"):
         if EMERGENT_DRY_RUN:
             return {"ok": True, "dry_run": True, "action": "activate-all"}
+        _ = forward_blaxing("POST", "/agents/activate-all", x_api_key, src, x_blaxing_base)
+        return {"ok": True, "action": "activate-all"}
 
 class CoreRouteRequest(BaseModel):
     agent: str
