@@ -7,6 +7,8 @@ stripe_bp = Blueprint("stripe_bp", __name__)
 
 # Configure Stripe secret key at import time
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+if not stripe.api_key:
+    raise RuntimeError("STRIPE_SECRET_KEY environment variable is required")
 
 
 # --- Utilities ---
@@ -49,6 +51,13 @@ def create_checkout_session():
         return jsonify({"error": "missing price_id"}), 400
     if not success_url or not cancel_url:
         return jsonify({"error": "Stripe success/cancel URLs not configured"}), 400
+    
+    # Validation de l'email si fourni
+    if customer_email:
+        import re
+        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_regex, customer_email):
+            return jsonify({"error": "invalid customer_email format"}), 400
 
     try:
         session = stripe.checkout.Session.create(
@@ -71,12 +80,16 @@ def stripe_webhook():
     sig_header = request.headers.get("Stripe-Signature")
     endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
     if not endpoint_secret:
-        return jsonify({"error": "STRIPE_WEBHOOK_SECRET missing"}), 400
+        current_app.logger.error("STRIPE_WEBHOOK_SECRET missing")
+        return jsonify({"error": "STRIPE_WEBHOOK_SECRET missing"}), 500
 
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
-    except Exception as e:
-        current_app.logger.error("Stripe webhook error: %s", e)
+    except ValueError as e:
+        current_app.logger.error("Stripe webhook invalid payload: %s", e)
+        return jsonify({"error": "invalid payload"}), 400
+    except stripe.error.SignatureVerificationError as e:
+        current_app.logger.error("Stripe webhook signature verification failed: %s", e)
         return jsonify({"error": "invalid signature"}), 400
 
     # Handle main events

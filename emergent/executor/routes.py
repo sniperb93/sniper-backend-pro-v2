@@ -7,8 +7,23 @@ agent_exec_bp = Blueprint("agent_exec_bp", __name__)
 def run_sniper():
     data = request.json or {}
     symbol = data.get("symbol", "BTCUSDT")
+    
+    # Validation du symbole
+    if not isinstance(symbol, str) or len(symbol) < 4:
+        return jsonify({"error": "invalid symbol format"}), 400
+    
     timeframe = data.get("timeframe", "1h")
-    lookback = int(data.get("lookback", 50))
+    # Validation du timeframe
+    valid_timeframes = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"]
+    if timeframe not in valid_timeframes:
+        return jsonify({"error": f"invalid timeframe, must be one of: {', '.join(valid_timeframes)}"}), 400
+    
+    try:
+        lookback = int(data.get("lookback", 50))
+        if lookback <= 0 or lookback > 1000:
+            return jsonify({"error": "lookback must be between 1 and 1000"}), 400
+    except ValueError:
+        return jsonify({"error": "invalid lookback value"}), 400
 
     try:
         # Exemple de logique: ici on renvoie une action BUY mockée avec une confiance fixe

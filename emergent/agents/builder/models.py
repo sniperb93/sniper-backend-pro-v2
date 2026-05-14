@@ -7,17 +7,27 @@ class BlaxingAgent:
         self.role = role
         self.personality = personality
         self.mission = mission
-        self.api_key = api_key
+        self._api_key = api_key  # Stockage privé pour sécurité
         self.active = active
         self.use_openai = use_openai
 
-    def to_dict(self):
-        return {
+    def to_dict(self, include_sensitive=False):
+        """
+        Retourne un dictionnaire de l'agent.
+        Attention: include_sensitive=True ne doit être utilisé qu'en interne.
+        """
+        data = {
             "name": self.name,
             "role": self.role,
             "personality": self.personality,
             "mission": self.mission,
-            "api_key": self.api_key,
             "active": self.active,
             "use_openai": self.use_openai,
         }
+        if include_sensitive:
+            data["api_key"] = self._api_key
+        return data
+
+    @property
+    def api_key(self):
+        return self._api_key
