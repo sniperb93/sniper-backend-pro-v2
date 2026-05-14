@@ -45,7 +45,22 @@ def start_sniper():
 def test_trade():
     data = request.json or {}
     symbol = data.get("symbol","SOLUSDT")
-    amount_usdc = float(data.get("amount_usdc", 10))
+    
+    # Validation du symbole (format basique)
+    if not isinstance(symbol, str) or len(symbol) < 4:
+        return jsonify({"error": "invalid symbol format"}), 400
+    
+    # Validation et limitation du montant pour sécurité
+    try:
+        amount_usdc = float(data.get("amount_usdc", 10))
+        max_amount = float(os.getenv("MAX_TEST_TRADE_AMOUNT", "100"))
+        if amount_usdc > max_amount:
+            return jsonify({"error": f"amount_usdc exceeds maximum allowed ({max_amount})"}), 400
+        if amount_usdc <= 0:
+            return jsonify({"error": "amount_usdc must be positive"}), 400
+    except ValueError:
+        return jsonify({"error": "invalid amount_usdc value"}), 400
+    
     simulate = data.get("simulate", True)
 
     try:
