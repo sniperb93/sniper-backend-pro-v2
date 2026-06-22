@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "firecrawl": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "firecrawl-mcp"],
+      "env": {
+        "FIRECRAWL_API_KEY": "YOUR_FIRECRAWL_API_KEY"
+      }
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    },
+    "bright-data": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@brightdata/mcp"],
+      "env": {
+        "API_TOKEN": "YOUR_BRIGHTDATA_API_TOKEN",
+        "WEB_UNLOCKER_ZONE": "unblocker",
+        "BROWSER_ZONE": "scraping_browser"
+      }
+    }
+  }
+}

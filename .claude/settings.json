@@ -1,0 +1,3 @@
+{
+  "enabledMcpjsonServers": ["firecrawl", "playwright", "bright-data"]
+}
